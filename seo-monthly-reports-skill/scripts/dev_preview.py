@@ -92,7 +92,7 @@ def render(fixture: str, design: str, out_dir: str) -> str:
 def export_slides(pptx: str, out_dir: str) -> list:
     """Abre el PPTX con Keynote y exporta cada diapositiva a JPEG."""
     pptx = os.path.abspath(pptx)
-    img_dir = os.path.join(out_dir, os.path.splitext(os.path.basename(pptx))[0])
+    img_dir = os.path.join(os.path.abspath(out_dir), os.path.splitext(os.path.basename(pptx))[0])
     shutil.rmtree(img_dir, ignore_errors=True)
     os.makedirs(img_dir)
     script = f'''
@@ -102,7 +102,9 @@ def export_slides(pptx: str, out_dir: str) -> list:
         close doc saving no
     end tell
     '''
-    subprocess.run(["osascript", "-e", script], check=True, capture_output=True, text=True, timeout=300)
+    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=300)
+    if r.returncode:
+        sys.exit(f"❌ Keynote no pudo exportar {os.path.basename(pptx)}: {r.stderr.strip()}")
     files = sorted(glob.glob(os.path.join(img_dir, "**", "*.jp*g"), recursive=True))
     if not files:
         sys.exit(f"❌ Keynote no exportó imágenes en {img_dir}")

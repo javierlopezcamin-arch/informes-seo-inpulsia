@@ -131,6 +131,37 @@ def _get_client_logo(client_name: str):
     return path
 
 
+def _fit_logo(path: str, max_w: float, max_h: float) -> tuple:
+    """Ancho y alto (pulgadas) del logo encajado en max_w × max_h sin deformarlo."""
+    from PIL import Image
+    try:
+        with Image.open(path) as im:
+            ratio = im.width / im.height
+    except Exception:
+        ratio = 3.0
+    w = min(max_w, max_h * ratio)
+    return w, w / ratio
+
+
+def _logo_is_light(path: str) -> bool:
+    """True si el logo es claro sobre fondo transparente (se lee bien sobre navy).
+    Logos oscuros o con fondo propio (JPG, PNG opaco) devuelven False."""
+    from PIL import Image
+    try:
+        with Image.open(path) as im:
+            im = im.convert("RGBA")
+            im.thumbnail((200, 200))
+            data = getattr(im, "get_flattened_data", im.getdata)()
+            px = [p for p in data if p[3] > 128]
+            if not px or len(px) > 0.95 * im.width * im.height:
+                return False
+            lum = [(0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 for r, g, b, _ in px]
+            # claro en conjunto y casi sin partes oscuras (un texto oscuro pequeño no se leería)
+            return sum(lum) / len(lum) > 0.75 and sum(1 for v in lum if v < 0.45) < 0.03 * len(lum)
+    except Exception:
+        return False
+
+
 def _delta_color(delta: str) -> RGBColor:
     if delta.startswith("▲"):
         return GREEN
@@ -222,23 +253,25 @@ def add_cover_slide(prs, client_name: str, month: int, year: int, client_logo=No
     sep.fill.fore_color.rgb = LIME
     sep.line.fill.background()
 
-    # Logo cliente en círculo blanco centrado (si existe)
-    y_name = 2.62
+    # Logo cliente centrado: directo sobre el navy si es claro; si es oscuro o tiene
+    # fondo propio, en una tarjeta blanca redondeada del tamaño del logo.
+    y_name = 2.7
     if client_logo:
-        from pptx.enum.shapes import MSO_SHAPE
-        circle_d = 1.2
-        circle_x = (10 - circle_d) / 2
-        circle = slide.shapes.add_shape(
-            MSO_SHAPE.OVAL, Inches(circle_x), Inches(y_name),
-            Inches(circle_d), Inches(circle_d))
-        circle.fill.solid()
-        circle.fill.fore_color.rgb = WHITE
-        circle.line.fill.background()
-        logo_h = 0.7
-        pic = slide.shapes.add_picture(client_logo, Inches(0), Inches(0), height=Inches(logo_h))
-        pic.left = int((prs.slide_width - pic.width) / 2)
-        pic.top = int(Inches(y_name) + (Inches(circle_d) - pic.height) / 2)
-        y_name += circle_d + 0.15
+        w, h = _fit_logo(client_logo, max_w=3.0, max_h=0.8)
+        pad = 0 if _logo_is_light(client_logo) else 0.14
+        if pad:
+            from pptx.enum.shapes import MSO_SHAPE
+            card = slide.shapes.add_shape(
+                MSO_SHAPE.ROUNDED_RECTANGLE, Inches((10 - w) / 2 - pad), Inches(y_name),
+                Inches(w + 2 * pad), Inches(h + 2 * pad))
+            card.adjustments[0] = 0.18
+            card.fill.solid()
+            card.fill.fore_color.rgb = WHITE
+            card.line.fill.background()
+            card.shadow.inherit = False
+        slide.shapes.add_picture(client_logo, Inches((10 - w) / 2), Inches(y_name + pad),
+                                 width=Inches(w), height=Inches(h))
+        y_name += h + 2 * pad + 0.12
 
     # Nombre cliente
     tb2 = slide.shapes.add_textbox(Inches(0.5), Inches(y_name), Inches(9.2), Inches(0.7))

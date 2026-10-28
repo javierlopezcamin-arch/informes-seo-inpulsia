@@ -116,6 +116,11 @@ html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;colo
 /* Dropdown popover */
 [data-baseweb="popover"] [role="listbox"],[data-baseweb="menu"]{background:var(--bg3)!important;border:1px solid var(--line2)!important;border-radius:12px!important;box-shadow:var(--shadow)!important;}
 [data-baseweb="popover"] [role="option"]:hover,li[role="option"]:hover{background:rgba(198,255,42,.12)!important;}
+/* Desplegable del multiselect (lista virtual + «Select all») */
+[data-baseweb="popover"],[data-baseweb="popover"]>div,[data-baseweb="popover"] [data-testid="stSelectboxVirtualDropdown"]{background:var(--bg3)!important;}
+[data-baseweb="popover"]>div{border:1px solid var(--line2)!important;border-radius:12px!important;box-shadow:var(--shadow)!important;overflow:hidden;}
+[data-baseweb="popover"] li[role="option"],[data-baseweb="popover"] li[role="option"] *,[data-baseweb="popover"] div{color:var(--text)!important;}
+[data-baseweb="popover"] li[role="option"][aria-selected="true"]{background:rgba(198,255,42,.12)!important;}
 
 /* Buttons */
 [data-testid="stButton"] button,[data-testid="stDownloadButton"] button{border-radius:12px!important;font-family:'Syne',sans-serif!important;font-weight:700!important;letter-spacing:.5px!important;transition:transform .15s,box-shadow .2s,background .2s!important;}
@@ -148,6 +153,12 @@ html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;colo
 [data-testid="stMultiSelect"] span[data-baseweb="tag"] svg{fill:var(--orange)!important;opacity:.65;}
 [data-testid="stMultiSelect"] span[data-baseweb="tag"]:hover svg{opacity:1;}
 [data-testid="stMultiSelect"] [data-baseweb="select"] input{font-size:12px!important;}
+/* Multiselect oscuro, como los desplegables */
+[data-testid="stMultiSelect"] [data-baseweb="select"]>div{background:var(--bg3)!important;border:1px solid var(--line2)!important;border-radius:12px!important;transition:border-color .18s,box-shadow .18s!important;}
+[data-testid="stMultiSelect"] [data-baseweb="select"]>div:hover{border-color:rgba(255,255,255,.2)!important;}
+[data-testid="stMultiSelect"] [data-baseweb="select"]>div:focus-within{border-color:var(--orange)!important;box-shadow:0 0 0 3px rgba(198,255,42,.14)!important;}
+[data-testid="stMultiSelect"] [data-baseweb="select"] svg{fill:var(--muted)!important;}
+[data-testid="stMultiSelect"] input::placeholder{color:var(--muted)!important;}
 
 /* Checkbox */
 [data-testid="stCheckbox"] label,

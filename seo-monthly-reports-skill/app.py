@@ -637,13 +637,16 @@ with tab1:
             st.session_state["sel_clients"] = clients[:1]
         else:  # descarta clientes borrados/renombrados desde la última selección
             st.session_state["sel_clients"] = [c for c in st.session_state["sel_clients"] if c in clients]
-        _sa1, _sa2, _sa3 = st.columns(3)
+        _sa1, _sa2, _sa4, _sa3 = st.columns(4)
         with _sa1:
             if st.button("Seleccionar todos", use_container_width=True, key="sel_all"):
                 st.session_state["sel_clients"] = clients
         with _sa2:
             if st.button("Solo con acceso OK", use_container_width=True, key="sel_ok"):
                 st.session_state["sel_clients"] = [c for c in clients if ac.state_of(status_all.get(c)) == "ok"]
+        with _sa4:
+            if st.button("Solo con Ads", use_container_width=True, key="sel_ads"):
+                st.session_state["sel_clients"] = [c for c in clients if get_ads_flag(c)]
         with _sa3:
             if st.button("Ninguno", use_container_width=True, key="sel_none"):
                 st.session_state["sel_clients"] = []

@@ -19,6 +19,7 @@ from pptx.dml.color import RGBColor
 
 from utils import MESES, get_output_dir
 from generate_pptx import _get_logo, _get_client_logo, convert_to_pdf, _CACHE_DIR  # noqa: F401 (reexport)
+from generate_pptx import ROW_H, ROW_H_MIN, _rows_fit, _paginate_rows, _paginate_text
 
 try:
     import charts as gcharts
@@ -376,15 +377,14 @@ def add_double_image(prs, kicker, title, img_l, label_l, img_r, label_r, section
 
 # ── Tablas ───────────────────────────────────────────────────
 
-ROW_H = 0.34
 # Las tablas terminan en x = 8.9 para no pisar el círculo "›" (x 9.02-9.64, y 4.78-5.40)
 TABLE_W = 8.3
 
 
-def _render_table(slide, headers, rows, y_table, col_widths):
+def _render_table(slide, headers, rows, y_table, col_widths, row_h=ROW_H):
     n_rows, n_cols = len(rows) + 1, len(headers)
     gframe = slide.shapes.add_table(n_rows, n_cols, Inches(0.6), Inches(y_table),
-                                    Inches(TABLE_W), Inches(ROW_H * n_rows))
+                                    Inches(TABLE_W), Inches(row_h * n_rows))
     table = gframe.table
     table.first_row = False
     table.horz_banding = False
@@ -423,31 +423,27 @@ def _render_table(slide, headers, rows, y_table, col_widths):
 
 
 def add_table(prs, kicker, title, headers, rows, narrative, section, col_widths=None, note=None):
-    idx, page = 0, 0
-    while True:
+    """Tabla paginada: si no cabe sigue en «(cont.)», nunca con solo 1-2 filas."""
+    y_first, y_rest = (2.2 if narrative else 1.85), 1.85
+    bottom = 4.95 if note else 5.35
+    pages = _paginate_rows(len(rows), _rows_fit(y_first, bottom, ROW_H), _rows_fit(y_rest, bottom, ROW_H),
+                           _rows_fit(y_first, bottom, ROW_H_MIN), _rows_fit(y_rest, bottom, ROW_H_MIN))
+    idx = 0
+    for page, (count, tight) in enumerate(pages):
         first = page == 0
         s = _slide(prs)
         _decor(s)
         _header(s, kicker, title if first else f"{title} (cont.)", section)
 
-        y_table = 1.85
+        y_table = y_first if first else y_rest
         if first and narrative:
             _text(s, 0.6, 1.78, 8.7, 0.4, narrative, size=11, color=MUTE, font=F_BODY)
-            y_table = 2.2
 
-        bottom = 4.95 if note else 5.35
-        cap = max(1, int((bottom - y_table) / ROW_H) - 1)
-        chunk = rows[idx:idx + cap]
-        idx += cap
-        is_last = idx >= len(rows)
-
-        _render_table(s, headers, chunk, y_table, col_widths)
-        if note and is_last:
+        row_h = min(ROW_H, (bottom - y_table) / (count + 1)) if tight else ROW_H
+        _render_table(s, headers, rows[idx:idx + count], y_table, col_widths, row_h)
+        idx += count
+        if note and page == len(pages) - 1:
             _insight_box(s, note)
-
-        page += 1
-        if is_last:
-            break
 
 
 # ── Keywords ganadas / perdidas ──────────────────────────────
@@ -536,18 +532,7 @@ def add_pagespeed(prs, ps_data, section):
 
 def add_text(prs, kicker, title, content, section):
     paras = [l.strip() for l in content.split('\n') if l.strip()]
-    CAP, CHARS = 11.0, 95   # líneas por slide, caracteres por línea aprox.
-
-    pages, cur, used = [], [], 0.0
-    for para in paras:
-        lines = max(1, -(-len(para) // CHARS)) + 0.5  # +0.5 por el espaciado
-        if cur and used + lines > CAP:
-            pages.append(cur)
-            cur, used = [], 0.0
-        cur.append(para)
-        used += lines
-    if cur:
-        pages.append(cur)
+    pages, size = _paginate_text(paras, 12.5, box_w=8.3, box_h=3.0, space=8)
 
     for i, page in enumerate(pages):
         s = _slide(prs)
@@ -560,7 +545,7 @@ def add_text(prs, kicker, title, content, section):
         for j, para in enumerate(page):
             p = tf.paragraphs[0] if j == 0 else tf.add_paragraph()
             p.text = para
-            p.font.size = Pt(12.5)
+            p.font.size = Pt(size)
             p.font.name = F_BODY
             p.font.color.rgb = NAVY
             p.space_before = Pt(4)

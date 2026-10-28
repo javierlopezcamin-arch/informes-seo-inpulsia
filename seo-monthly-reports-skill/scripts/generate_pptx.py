@@ -170,6 +170,78 @@ def _delta_color(delta: str) -> RGBColor:
     return MUTED
 
 
+# ── Paginación de tablas y textos (compartida con INPULSIA 2) ─
+ROW_H, ROW_H_MIN = 0.34, 0.27   # alto de fila normal y mínimo al apretar
+MIN_TAIL_ROWS = 3               # una continuación nunca lleva solo 1-2 filas
+MIN_TAIL_LINES = 3              # ni solo 1-3 líneas de texto
+
+
+def _rows_fit(top: float, bottom: float, row_h: float) -> int:
+    """Filas de datos que caben entre top y bottom (la cabecera ocupa una)."""
+    return max(1, int((bottom - top) / row_h + 1e-6) - 1)
+
+
+def _paginate_rows(n: int, cap_first: int, cap_rest: int,
+                   squeeze_first: int, squeeze_rest: int) -> list:
+    """Reparte n filas en diapositivas → [(filas, apretada), …].
+    cap_* = filas que caben con el alto normal; squeeze_* = con el alto mínimo.
+    Si la última quedaría con 1-2 filas, se meten en la anterior reduciendo el alto
+    de fila; si no caben, se reparten a partes iguales entre las dos."""
+    sizes, left = [], n
+    while left > 0:
+        sizes.append(min(cap_first if not sizes else cap_rest, left))
+        left -= sizes[-1]
+    tight = [False] * len(sizes)
+    if len(sizes) > 1 and sizes[-1] < MIN_TAIL_ROWS:
+        i = len(sizes) - 2
+        both = sizes[i] + sizes[-1]
+        if both <= (squeeze_first if i == 0 else squeeze_rest):
+            sizes[i:], tight[i:] = [both], [True]
+        else:
+            first = min(cap_first if i == 0 else cap_rest, -(-both // 2))
+            sizes[i:] = [first, both - first]
+    return list(zip(sizes, tight)) or [(0, False)]
+
+
+def _paginate_text(paras: list, size: float, box_w: float, box_h: float,
+                   space: float, min_size: float = 11) -> tuple:
+    """Reparte párrafos en diapositivas según su alto estimado → (páginas, tamaño de letra).
+    Si lo que pasa a la última cabe en ≤ 3 líneas, baja la letra (hasta min_size) para
+    que quepa en una diapositiva menos; si ni así, equilibra las dos últimas."""
+    def lines(p, sz):
+        per_line = max(20, int(box_w * 72 / (sz * 0.53)))   # ~0,53 em por carácter
+        return max(1, -(-len(p) // per_line))
+
+    def height(p, sz):
+        return lines(p, sz) * sz * 1.2 + space
+
+    def split(sz):
+        pages, cur, used = [], [], 0.0
+        for p in paras:
+            h = height(p, sz)
+            if cur and used + h > box_h * 72:
+                pages.append(cur)
+                cur, used = [], 0.0
+            cur.append(p)
+            used += h
+        return pages + [cur] if cur else pages
+
+    pages = split(size)
+    if len(pages) > 1 and sum(lines(p, size) for p in pages[-1]) <= MIN_TAIL_LINES:
+        sz = size
+        while sz > min_size:
+            sz = max(min_size, sz - 0.5)
+            fewer = split(sz)
+            if len(fewer) < len(pages):
+                return fewer, sz
+        a, b = pages[-2][:], pages[-1][:]
+        while len(a) > 1 and sum(height(p, size) for p in b) + height(a[-1], size) \
+                <= sum(height(p, size) for p in a[:-1]):
+            b.insert(0, a.pop())
+        pages[-2:] = [a, b]
+    return pages, size
+
+
 def _section_watermark(slide, number: str):
     tb = slide.shapes.add_textbox(Inches(6.2), Inches(2.8), Inches(3.9), Inches(2.9))
     p = tb.text_frame.paragraphs[0]
@@ -372,24 +444,26 @@ def add_kpi_slide(prs, title: str, narrative: str, kpis: list, section: str, sec
 
 
 def add_text_slide(prs, title: str, content: str, section: str = "", section_num: str = ""):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    slide.background.fill.solid()
-    slide.background.fill.fore_color.rgb = OFFWH
+    paras = [l.strip() for l in content.split('\n') if l.strip()]
+    pages, size = _paginate_text(paras, 12.5, box_w=9.1, box_h=3.9, space=7)
+    for i, page in enumerate(pages):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = OFFWH
 
-    _add_top_bar(slide, right_text=section)
-    if section_num:
-        _section_watermark(slide, section_num)
-    _slide_title(slide, title)
+        _add_top_bar(slide, right_text=section)
+        if section_num:
+            _section_watermark(slide, section_num)
+        _slide_title(slide, title if i == 0 else f"{title} (cont.)")
 
-    box = slide.shapes.add_textbox(Inches(0.45), Inches(1.45), Inches(9.1), Inches(3.9))
-    frame = box.text_frame
-    frame.word_wrap = True
-    frame.clear()
-    for line in content.split('\n'):
-        if line.strip():
-            p = frame.add_paragraph()
-            p.text = line.strip()
-            p.font.size = Pt(12.5)
+        box = slide.shapes.add_textbox(Inches(0.45), Inches(1.45), Inches(9.1), Inches(3.9))
+        frame = box.text_frame
+        frame.word_wrap = True
+        frame.clear()
+        for j, para in enumerate(page):
+            p = frame.paragraphs[0] if j == 0 else frame.add_paragraph()
+            p.text = para
+            p.font.size = Pt(size)
             p.font.color.rgb = DARK
             p.space_before = Pt(4)
             p.space_after = Pt(3)
@@ -884,8 +958,27 @@ def _decay_slide_data(analysis):
 
 
 def add_table_slide(prs, title: str, headers: list, rows: list, narrative: str = "",
-                    section: str = "", section_num: str = "", col_widths: list = None):
-    """Tabla premium: cabecera navy, filas alternas, sin bordes pesados"""
+                    section: str = "", section_num: str = "", col_widths: list = None,
+                    note: str = None):
+    """Tabla premium: cabecera navy, filas alternas, sin bordes pesados.
+    Si no cabe sigue en diapositivas «(cont.)», nunca con solo 1-2 filas."""
+    y_first, y_rest = (1.88 if narrative else 1.42), 1.42
+    bottom = 4.8 if note else 5.35
+    pages = _paginate_rows(len(rows), _rows_fit(y_first, bottom, ROW_H), _rows_fit(y_rest, bottom, ROW_H),
+                           _rows_fit(y_first, bottom, ROW_H_MIN), _rows_fit(y_rest, bottom, ROW_H_MIN))
+    idx = 0
+    for page, (count, tight) in enumerate(pages):
+        first = page == 0
+        y_table = y_first if first else y_rest
+        row_h = min(ROW_H, (bottom - y_table) / (count + 1)) if tight else ROW_H
+        slide = _table_page(prs, title if first else f"{title} (cont.)", headers, rows[idx:idx + count],
+                            narrative if first else "", y_table, row_h, section, section_num, col_widths)
+        idx += count
+        if note and page == len(pages) - 1:
+            _add_insight_box(slide, note)
+
+
+def _table_page(prs, title, headers, rows, narrative, y_table, row_h, section, section_num, col_widths):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = OFFWH
@@ -895,7 +988,6 @@ def add_table_slide(prs, title: str, headers: list, rows: list, narrative: str =
         _section_watermark(slide, section_num)
     _slide_title(slide, title)
 
-    y_table = 1.42
     if narrative:
         tb_n = slide.shapes.add_textbox(Inches(0.45), Inches(1.34), Inches(9.1), Inches(0.45))
         tb_n.text_frame.word_wrap = True
@@ -903,13 +995,11 @@ def add_table_slide(prs, title: str, headers: list, rows: list, narrative: str =
         p_n.text = narrative
         p_n.font.size = Pt(11)
         p_n.font.color.rgb = MUTED
-        y_table = 1.88
 
     n_rows = len(rows) + 1
     n_cols = len(headers)
-    table_h = min(3.55, 0.34 * n_rows)
     gframe = slide.shapes.add_table(n_rows, n_cols, Inches(0.45), Inches(y_table),
-                                    Inches(9.1), Inches(table_h))
+                                    Inches(9.1), Inches(row_h * n_rows))
     table = gframe.table
 
     if col_widths:
@@ -942,6 +1032,7 @@ def add_table_slide(prs, title: str, headers: list, rows: list, narrative: str =
             p.font.color.rgb = DARK
             if j > 0:
                 p.alignment = PP_ALIGN.RIGHT
+    return slide
 
 
 def add_pagespeed_slide(prs, ps_data: dict, section: str = "", section_num: str = ""):
@@ -1533,9 +1624,8 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
                             [[k['query'], f"{k['position']}", f"{k['impressions']:,}",
                               f"{k['clicks']}", f"{k.get('ctr', 0):.1f}%"] for k in kws],
                             kw['narrative'], s_label, s_num,
-                            col_widths=[4, 1.2, 1.5, 1, 1])
-            if include_notes and insights.get('keywords'):
-                _add_insight_box(prs.slides[-1], insights['keywords'])
+                            col_widths=[4, 1.2, 1.5, 1, 1],
+                            note=insights.get('keywords') if include_notes else None)
 
         add_keyword_movements_slide(prs, kw_moves, s_label, s_num)
         add_opportunities_slide(prs, opps, s_label, s_num)

@@ -867,6 +867,60 @@ def add_index_slide(prs, sections: list):
         y += 0.55
 
 
+def add_highlights_slide(prs, highlights: dict):
+    """Lo más destacado del mes: 3 logros en tarjetas grandes y el punto a mejorar."""
+    wins, improve = highlights.get('wins', []), highlights.get('improve')
+    if not wins:
+        return
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide.background.fill.solid()
+    slide.background.fill.fore_color.rgb = OFFWH
+    _add_top_bar(slide, right_text="Lo más destacado")
+    _slide_title(slide, "Lo Más Destacado del Mes")
+
+    def box(x, y, w, h, color):
+        shp = slide.shapes.add_shape(1, Inches(x), Inches(y), Inches(w), Inches(h))
+        shp.fill.solid()
+        shp.fill.fore_color.rgb = color
+        shp.line.fill.background()
+        return shp
+
+    def text(x, y, w, h, value, size, color, bold=False, italic=False, align=None):
+        tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+        tb.text_frame.word_wrap = True
+        p = tb.text_frame.paragraphs[0]
+        p.text = value
+        p.font.size = Pt(size)
+        p.font.bold = bold
+        p.font.italic = italic
+        p.font.color.rgb = color
+        if align:
+            p.alignment = align
+
+    gap = 0.16
+    card_w = (9.1 - gap * (len(wins) - 1)) / len(wins)
+    y, h = (1.5, 1.85) if improve else (1.75, 2.5)
+    for i, w in enumerate(wins):
+        x = 0.45 + i * (card_w + gap)
+        box(x, y, card_w, h, NAVY)
+        box(x, y, card_w, 0.06, GREEN)
+        text(x + 0.17, y + 0.2, card_w - 0.3, 0.3, f"▲  {w['label'].upper()}", 9, GREEN, bold=True)
+        text(x + 0.14, y + 0.55, card_w - 0.25, 0.8, w['value'], 32 if len(w['value']) <= 7 else 24, WHITE, bold=True)
+        text(x + 0.17, y + h - 0.6, card_w - 0.3, 0.5, w['detail'], 11, MUTED)
+
+    if improve:
+        yi, hi = y + h + 0.18, 1.2
+        box(0.45, yi, 9.1, hi, NAVY)
+        box(0.45, yi, 0.06, hi, RED)
+        text(0.7, yi + 0.12, 4.0, 0.28, "PUNTO A MEJORAR", 9, RED, bold=True)
+        text(0.7, yi + 0.36, 6.2, 0.36, improve['label'], 15, WHITE, bold=True)
+        text(0.7, yi + 0.7, 6.4, 0.28, improve['detail'], 11, MUTED)
+        if improve.get('note'):
+            text(0.7, yi + 0.9, 7.6, 0.28, improve['note'], 10, OFFWH, italic=True)
+        if improve.get('value'):
+            text(7.0, yi + 0.22, 2.35, 0.65, improve['value'], 26, RED, bold=True, align=PP_ALIGN.RIGHT)
+
+
 def add_image_chart_slide(prs, title: str, img_path: str, narrative: str = "",
                           section: str = "", section_num: str = ""):
     """Slide con gráfico matplotlib (PNG) a página completa"""
@@ -1447,7 +1501,7 @@ def add_glossary_slide(prs):
 
 
 def generate_pptx(analysis: dict, client_name: str, sections: set = None, include_notes: bool = True) -> str:
-    ALL = {'resumen','trafico','canales','search','keywords','pagespeed','conclusiones'}
+    ALL = {'resumen','destacados','trafico','canales','search','keywords','pagespeed','conclusiones'}
     sec = sections if sections else ALL
     month   = analysis['month']
     year    = analysis['year']
@@ -1509,6 +1563,10 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
         idx_sections.append((f"{idx_n:02d}", "Conclusiones y Próximos Pasos"))
     sec_nums = {name: num for num, name in idx_sections}
     add_index_slide(prs, idx_sections)
+
+    # 2b. LO MÁS DESTACADO DEL MES
+    if 'destacados' in sec:
+        add_highlights_slide(prs, analysis.get('highlights') or {})
 
     # TRÁFICO
     if 'trafico' in sec:

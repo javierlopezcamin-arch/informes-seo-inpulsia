@@ -14,9 +14,9 @@ import access_check as ac
 
 PREFS_PATH = os.path.join(_CACHE_DIR, "ui_prefs.json")
 # Google Ads no es una sección elegible: la activa la marca de cada cliente (ADS_EN_INFORME_<CLIENTE>)
-ALL_SECTIONS = ["resumen","trafico","canales","search","keywords","pagespeed","recomendaciones","conclusiones","glosario"]
+ALL_SECTIONS = ["resumen","destacados","trafico","canales","search","keywords","pagespeed","recomendaciones","conclusiones","glosario"]
 DEFAULT_SECTIONS = list(ALL_SECTIONS)
-SECTION_LABELS = {"resumen":"Resumen Ejecutivo","trafico":"Tráfico Web","canales":"Canales y Audiencia","search":"Rendimiento en Google","keywords":"Keywords y Páginas","ads":"Google Ads (opcional)","pagespeed":"SEO Técnico","recomendaciones":"Análisis y Recomendaciones","conclusiones":"Conclusiones","glosario":"Glosario"}
+SECTION_LABELS = {"resumen":"Resumen Ejecutivo","destacados":"Lo más destacado","trafico":"Tráfico Web","canales":"Canales y Audiencia","search":"Rendimiento en Google","keywords":"Keywords y Páginas","ads":"Google Ads (opcional)","pagespeed":"SEO Técnico","recomendaciones":"Análisis y Recomendaciones","conclusiones":"Conclusiones","glosario":"Glosario"}
 # El ajuste de datos (boost) no se recuerda a propósito: debe partir siempre de "Datos reales".
 BOOSTS = {"Datos reales": "1.0", "+10 %": "1.10", "+20 %": "1.20", "+30 %": "1.30", "+50 %": "1.50"}
 PREF_DEFAULTS = {"design": "Inpulsia 2", "sections": DEFAULT_SECTIONS, "include_notes": True,
@@ -31,6 +31,10 @@ def load_prefs():
         data = {}
     prefs = {k: data.get(k, v) for k, v in PREF_DEFAULTS.items()}
     prefs["sections"] = [s for s in prefs["sections"] if s in ALL_SECTIONS] or DEFAULT_SECTIONS
+    # Secciones nuevas desde que se guardaron las preferencias: salen activadas
+    # (las guardadas antes de existir sections_seen conocían todas menos «destacados»)
+    seen = data.get("sections_seen", [s for s in ALL_SECTIONS if s != "destacados"])
+    prefs["sections"] = [s for s in ALL_SECTIONS if s in prefs["sections"] or s not in seen]
     if prefs["design"] not in ("Inpulsia 1", "Inpulsia 2"): prefs["design"] = PREF_DEFAULTS["design"]
     if prefs["notes_level"] not in ("Analítico", "Positivo"): prefs["notes_level"] = PREF_DEFAULTS["notes_level"]
     return prefs
@@ -41,7 +45,7 @@ def save_prefs(prefs):
         os.makedirs(_CACHE_DIR, exist_ok=True)
         tmp = f"{PREFS_PATH}.{os.getpid()}.tmp"
         with open(tmp, "w") as f:
-            json.dump(prefs, f)
+            json.dump({**prefs, "sections_seen": ALL_SECTIONS}, f)
         os.replace(tmp, PREFS_PATH)
     except OSError:
         pass

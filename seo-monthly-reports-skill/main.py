@@ -68,7 +68,7 @@ def main():
     parser.add_argument('--boost', type=float, default=1.0, help='Factor de ajuste (1.0=real, 1.10=+10%%, 1.20=+20%%, 1.30=+30%%)')
     parser.add_argument('--validate-only', action='store_true', help='Solo validar acceso a APIs, sin generar informe')
     parser.add_argument('--upload-drive', action='store_true', help='Subir informe a Google Drive')
-    parser.add_argument('--sections', type=str, default='resumen,trafico,canales,search,keywords,pagespeed,conclusiones,glosario', help='Secciones a incluir')
+    parser.add_argument('--sections', type=str, default='resumen,destacados,trafico,canales,search,keywords,pagespeed,conclusiones,glosario', help='Secciones a incluir')
     parser.add_argument('--no-notes', action='store_true', help='No incluir notas IA en las slides')
     parser.add_argument('--notes-level', type=str, default='analitico', choices=['positivo', 'analitico'], help='Profundidad de las notas IA')
     parser.add_argument('--design', type=str, default='inpulsia1', choices=['inpulsia1', 'inpulsia2'], help='Diseño del informe')

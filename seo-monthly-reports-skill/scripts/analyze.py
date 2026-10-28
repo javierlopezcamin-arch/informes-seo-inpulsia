@@ -363,6 +363,98 @@ class SEOAnalyzer:
                      "en verde lo que sube y en rojo lo que baja.")
         return {'metrics': metrics, 'narrative': narrative}
 
+    # ── Lo más destacado del mes (por reglas, sin IA) ────────
+    def analyze_highlights(self) -> Dict:
+        """3 logros y 1 punto a mejorar: las métricas que más suben, la que más baja y la
+        página que más clics pierde. Por reglas y no con el resumen de la IA, que no siempre
+        son logros y ya tiene su diapositiva."""
+        m, mp = self.ga4.get('metrics', {}), self.ga4_prev.get('metrics', {})
+        s, sp = self.sc.get('summary', {}), self.sc_prev.get('summary', {})
+        ai = self.insights.get('ai') or {}
+        prev_name = MESES.get(12 if self.month == 1 else self.month - 1, 'el mes anterior')
+
+        # (grupo, etiqueta, actual, anterior, formato); un logro por grupo para no repetir
+        # «usuarios» y «sesiones», que casi siempre se mueven juntos
+        volume = [
+            ('trafico', 'Usuarios', m.get('total_users', 0), mp.get('total_users', 0)),
+            ('trafico', 'Sesiones', m.get('sessions', 0), mp.get('sessions', 0)),
+            ('google', 'Impresiones en Google', s.get('impressions', 0), sp.get('impressions', 0)),
+            ('clics', 'Clics desde Google', s.get('clicks', 0), sp.get('clicks', 0)),
+            ('ia', 'Visitas desde IA', ai.get('sessions', 0), ai.get('prev_sessions') or 0),
+        ]
+        cands = []
+        for group, label, cur, prev in volume:
+            if cur and prev >= 10:   # con menos, un 1 → 4 sería «+300 %»
+                ch = (cur - prev) / prev * 100
+                cands.append({'group': group, 'label': label, 'score': ch, 'value': fmt_pct(ch, 0, sign=True),
+                              'detail': f"{fmt_int(cur)} frente a {fmt_int(prev)} en {prev_name}"})
+        if s.get('ctr') and sp.get('ctr') and s.get('clicks', 0) >= 10:
+            ch = (s['ctr'] - sp['ctr']) / sp['ctr'] * 100
+            cands.append({'group': 'ctr', 'label': 'CTR en Google', 'score': ch, 'value': fmt_pct(ch, 0, sign=True),
+                          'detail': f"{fmt_pct(s['ctr'], 2)} frente a {fmt_pct(sp['ctr'], 2)} en {prev_name}",
+                          'only_win': True})
+        if s.get('position') and sp.get('position'):
+            d = sp['position'] - s['position']   # positivo: sube en Google
+            cands.append({'group': 'posicion', 'label': 'Posiciones ganadas' if d > 0 else 'Posiciones perdidas',
+                          'score': d / sp['position'] * 100, 'value': fmt_dec(abs(d)),
+                          'detail': f"posición media {fmt_dec(s['position'])} ({fmt_dec(sp['position'])} en {prev_name})"})
+        if m.get('bounce_rate') and mp.get('bounce_rate'):
+            d = mp['bounce_rate'] - m['bounce_rate']   # positivo: baja el rebote
+            cands.append({'group': 'rebote', 'label': 'Menos rebote', 'score': d / mp['bounce_rate'] * 100,
+                          'value': f"{fmt_dec(-d, sign=True)}{NBSP}pp",
+                          'detail': f"{fmt_pct(m['bounce_rate'])} frente a {fmt_pct(mp['bounce_rate'])} en {prev_name}",
+                          'only_win': True})
+
+        wins, used = [], set()
+        for c in sorted(cands, key=lambda c: -c['score']):
+            if c['score'] > 1 and c['group'] not in used and len(wins) < 3:
+                wins.append(c)
+                used.add(c['group'])
+
+        # Si suben menos de 3 cosas, se completan con cifras del mes que siempre aportan
+        kws = self._clean_keywords()
+        extra = []
+        if kws and kws[0].get('clicks'):
+            extra.append({'label': 'Keyword principal', 'value': f"{fmt_int(kws[0]['clicks'])} clics",
+                          'detail': f"«{kws[0]['query']}» en posición {fmt_dec(kws[0]['position'])}"})
+        if s.get('impressions'):
+            extra.append({'label': 'Impresiones en Google', 'value': fmt_int(s['impressions']),
+                          'detail': "veces que la web apareció en Google este mes"})
+        first_page = sum(1 for k in kws if k.get('position', 99) <= 10)
+        if first_page:
+            extra.append({'label': 'Keywords en primera página', 'value': fmt_int(first_page),
+                          'detail': "búsquedas en las que la web sale en el top 10"})
+        for e in extra:
+            if len(wins) >= 3:
+                break
+            if e['label'] not in {w['label'] for w in wins}:
+                wins.append(e)
+
+        # Punto a mejorar: la métrica de volumen o posición que más baja, y la página que más clics pierde
+        drops = sorted((c for c in cands if c['score'] < -1 and not c.get('only_win')), key=lambda c: c['score'])
+        dec = (self.insights.get('decay') or {}).get('pages', [])
+        page = path = ""
+        if dec:
+            page = dec[0]
+            path = "/" + page['page'].split('://')[-1].partition('/')[2]
+            path = path if len(path) <= 48 else path[:47] + "…"
+        if drops:
+            d = drops[0]
+            note = (f"La página {path} pierde un {fmt_pct(abs(page['pct']), 0)} de clics: "
+                    "conviene actualizar su contenido." if page else "")
+            improve = {'label': d['label'], 'value': d['value'], 'detail': d['detail'], 'note': note}
+        elif page:
+            improve = {'label': 'Contenido que pierde visitas', 'value': fmt_pct(page['pct'], 0),
+                       'detail': f"{path}: {fmt_int(page['clicks_before'])} → {fmt_int(page['clicks_now'])} clics",
+                       'note': "Actualizar su contenido suele dar resultados antes que crear páginas nuevas."}
+        else:
+            opp = (self.analyze_opportunities().get('opportunities') or [None])[0]
+            improve = ({'label': 'A un paso del top 10', 'value': fmt_dec(opp['position']),
+                        'detail': f"«{opp['query']}» está en la posición {fmt_dec(opp['position'])}",
+                        'note': "Reforzar esa página puede llevarla a la primera página de Google."}
+                       if opp else None)
+        return {'wins': wins, 'improve': improve}
+
     # ── Keywords ganadas / perdidas (#5) ────────────────────
     def analyze_keyword_movements(self) -> Dict:
         curr_kws = {k['query']: k for k in self.sc.get('top_keywords', [])}
@@ -632,6 +724,7 @@ class SEOAnalyzer:
             'top_countries': self.ga4.get('top_countries', []),
             'devices_sc': self.sc.get('devices', []),
             'mom': self.analyze_mom(),
+            'highlights': self.analyze_highlights(),
             'keyword_movements': self.analyze_keyword_movements(),
             'opportunities': self.analyze_opportunities(),
             'insights': bundle.get('insights', {}) or {},

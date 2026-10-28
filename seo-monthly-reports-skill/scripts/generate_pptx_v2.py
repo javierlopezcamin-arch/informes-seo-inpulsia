@@ -296,6 +296,52 @@ def add_index(prs, sections):
         y += step
 
 
+# ── Lo más destacado del mes ─────────────────────────────────
+
+def add_highlights(prs, highlights):
+    """3 logros en tarjetas grandes y, debajo, el punto a mejorar (analyze_highlights)."""
+    wins, improve = highlights.get("wins", []), highlights.get("improve")
+    if not wins:
+        return
+    s = _slide(prs)
+    _decor(s)
+    _header(s, "el mes en cuatro claves" if improve else "el mes en tres claves", "LO MÁS DESTACADO")
+
+    gap = 0.2
+    card_w = (TABLE_W - gap * (len(wins) - 1)) / len(wins)
+    y, h = (1.9, 1.75) if improve else (2.15, 2.3)
+    for i, w in enumerate(wins):
+        x = 0.6 + i * (card_w + gap)
+        _round(s, x, y, card_w, h, SOFT, radius=0.1, line=GHOST)
+        chip = _oval(s, x + 0.2, y + 0.2, 0.32, GREEN)
+        cp = chip.text_frame.paragraphs[0]
+        cp.alignment = PP_ALIGN.CENTER
+        cr = cp.add_run(); cr.text = "↑"; cr.font.size = Pt(12); cr.font.bold = True; cr.font.color.rgb = WHITE
+        _text(s, x + 0.62, y + 0.24, card_w - 0.75, 0.3, w["label"], size=9.5, color=MUTE,
+              font=F_BODY_SB, caps=True, track=40)
+        _text(s, x + 0.2, y + 0.62, card_w - 0.35, 0.7, w["value"], size=32 if len(w["value"]) <= 7 else 24,
+              color=NAVY, font=F_TITLE)
+        _text(s, x + 0.2, y + h - 0.55, card_w - 0.35, 0.45, w["detail"], size=11, color=MUTE, font=F_BODY)
+
+    if improve:
+        yi, hi = y + h + 0.17, 1.15
+        _round(s, 0.6, yi, TABLE_W, hi, RGBColor(0xFF, 0xF1, 0xEC), radius=0.12)
+        _round(s, 0.6, yi, 0.07, hi, CORAL, radius=0.0)
+        chip = _oval(s, 0.85, yi + 0.18, 0.32, CORAL)
+        cp = chip.text_frame.paragraphs[0]
+        cp.alignment = PP_ALIGN.CENTER
+        cr = cp.add_run(); cr.text = "!"; cr.font.size = Pt(11); cr.font.bold = True; cr.font.color.rgb = WHITE
+        _text(s, 1.32, yi + 0.12, 4.0, 0.26, "punto a mejorar", size=9, color=CORAL,
+              font=F_BODY_SB, caps=True, track=60)
+        _text(s, 1.32, yi + 0.36, 5.4, 0.34, improve["label"], size=15, color=NAVY, font=F_BODY_SB)
+        _text(s, 1.32, yi + 0.68, 5.6, 0.26, improve["detail"], size=11, color=MUTE, font=F_BODY)
+        if improve.get("note"):
+            _text(s, 1.32, yi + 0.88, 6.9, 0.26, improve["note"], size=10, color=NAVY, font=F_BODY, italic=True)
+        if improve.get("value"):
+            _text(s, 6.6, yi + 0.2, 2.1, 0.6, improve["value"], size=26, color=CORAL,
+                  font=F_TITLE, align=PP_ALIGN.RIGHT)
+
+
 # ── KPIs ─────────────────────────────────────────────────────
 
 def add_kpi(prs, kicker, title, narrative, kpis, section):
@@ -741,7 +787,7 @@ def _insight_box(slide, text, y=5.07):
 
 def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
                      include_notes: bool = True) -> str:
-    ALL = {'resumen', 'trafico', 'canales', 'search', 'keywords', 'pagespeed', 'conclusiones'}
+    ALL = {'resumen', 'destacados', 'trafico', 'canales', 'search', 'keywords', 'pagespeed', 'conclusiones'}
     sec = sections if sections else ALL
 
     month = analysis['month']
@@ -798,6 +844,9 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
         idx.append((f"{n:02d}", "Conclusiones y Próximos Pasos"))
     sec_nums = {name: num for num, name in idx}
     add_index(prs, idx)
+
+    if 'destacados' in sec:
+        add_highlights(prs, analysis.get('highlights') or {})
 
     # TRÁFICO
     if 'trafico' in sec:

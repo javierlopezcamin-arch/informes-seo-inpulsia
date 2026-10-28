@@ -1,0 +1,24 @@
+{\rtf1\ansi\deff0{\fonttbl{\f0 Arial;}}\f0\fs22
+{\b\fs32 Inpulsia - Monthly Reporting Tool}\par
+{\i Google Ads API design document}\par\par
+{\b Company:} Inpulsia (https://inpulsia.es), digital marketing agency (SEO and Google Ads) for small and medium businesses in Spain.\par
+{\b Manager account (MCC):} 447-549-0962\par
+{\b Google Cloud project number:} 85506953876\par\par
+{\b\fs26 1. Purpose}\par
+Internal tool that creates a monthly performance report (PDF) for each client. It combines Google Ads data with Google Analytics 4 and Search Console data. The Google Ads API is used only for reporting, in read-only mode.\par\par
+{\b\fs26 2. Users}\par
+Internal use only (Inpulsia team). Clients do not access the tool; they only receive the final PDF report.\par\par
+{\b\fs26 3. Google Ads API usage}\par
+- Service: GoogleAdsService.SearchStream / Search (GAQL), read-only.\par
+- Accounts: client accounts linked to our MCC (login-customer-id 447-549-0962).\par
+- Data read for the previous month: campaign metrics (impressions, clicks, cost, CTR, CPC, conversions), conversion actions, search terms, keywords and Quality Score, final URLs, impression share.\par
+- No mutate operations: the tool never creates or changes campaigns, ads, bids or budgets.\par
+- Volume: one run per client per month, about 10 queries per account. Results are cached locally for 30 days.\par\par
+{\b\fs26 4. Workflow}\par
+1. A team member selects the client and month in the internal web app.\par
+2. The tool reads Google Ads (API), Google Analytics 4 and Search Console data.\par
+3. It creates the PDF report and saves it in Google Drive.\par
+4. The team reviews it and sends it to the client.\par\par
+{\b\fs26 5. Security}\par
+OAuth 2.0 credentials and the developer token are stored in environment variables on the agency's computer and are never shared with clients or third parties.\par
+}

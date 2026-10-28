@@ -1,0 +1,24 @@
+# Secretos y credenciales: nunca al repositorio
+.env
+.env.*
+*.env.bak*
+credenciales/
+_archivo/
+*client_secret*.json
+*-key.json
+*token*.json
+
+# Datos de clientes e informes generados
+capturas/
+EJEMPLO/
+internos/
+*.pptx
+*.pdf
+seo-monthly-reports-skill/scratch/
+
+# Sistema y Python
+.DS_Store
+__pycache__/
+*.pyc
+.claude/settings.local.json
+.cloudflare/

@@ -1152,7 +1152,7 @@ def convert_to_pdf(pptx_path: str) -> str | None:
     import subprocess, shutil
     soffice = shutil.which("soffice")
     if not soffice:
-        print("  ⚠️  PDF no generado: falta LibreOffice (instalar con: brew install --cask libreoffice)")
+        print("  ℹ️  PDF: sin LibreOffice, solo se genera el PPTX")
         return None
     out_dir = os.path.dirname(pptx_path)
     try:

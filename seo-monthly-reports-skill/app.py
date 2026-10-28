@@ -216,7 +216,6 @@ def pick_folder():
 def credentials_status(ads_cid):
     """Estado de lo que necesita una tanda, para verlo antes de lanzarla.
     Se cachea 10 min: Drive y Ads hacen una llamada de red. Devuelve [(etiqueta, estado, detalle)]."""
-    import shutil
     ac.load_env()
     out = []
     sa = ac._creds_path()
@@ -232,8 +231,6 @@ def credentials_status(ads_cid):
         import extract_google_ads as eg
         r = eg.check_access(ads_cid)
         out.append(("Google Ads", "ok" if r["ok"] else "bad", "" if r["ok"] else r.get("error", "error")))
-    pdf_ok = bool(shutil.which("soffice"))
-    out.append(("PDF", "ok" if pdf_ok else "bad", "" if pdf_ok else "Falta LibreOffice: los informes saldrán sin PDF (brew install --cask libreoffice)"))
     return out
 
 

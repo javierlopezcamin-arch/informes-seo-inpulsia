@@ -377,19 +377,21 @@ def add_double_image(prs, kicker, title, img_l, label_l, img_r, label_r, section
 # ── Tablas ───────────────────────────────────────────────────
 
 ROW_H = 0.34
+# Las tablas terminan en x = 8.9 para no pisar el círculo "›" (x 9.02-9.64, y 4.78-5.40)
+TABLE_W = 8.3
 
 
 def _render_table(slide, headers, rows, y_table, col_widths):
     n_rows, n_cols = len(rows) + 1, len(headers)
     gframe = slide.shapes.add_table(n_rows, n_cols, Inches(0.6), Inches(y_table),
-                                    Inches(8.8), Inches(ROW_H * n_rows))
+                                    Inches(TABLE_W), Inches(ROW_H * n_rows))
     table = gframe.table
     table.first_row = False
     table.horz_banding = False
     if col_widths:
         total = sum(col_widths)
         for i, cw in enumerate(col_widths):
-            table.columns[i].width = Inches(8.8 * cw / total)
+            table.columns[i].width = Inches(TABLE_W * cw / total)
 
     for j, hd in enumerate(headers):
         cell = table.cell(0, j)
@@ -551,7 +553,7 @@ def add_text(prs, kicker, title, content, section):
         s = _slide(prs)
         _decor(s)
         _header(s, kicker, title if i == 0 else f"{title} (cont.)", section)
-        box = s.shapes.add_textbox(Inches(0.6), Inches(1.95), Inches(8.7), Inches(3.0))
+        box = s.shapes.add_textbox(Inches(0.6), Inches(1.95), Inches(8.3), Inches(3.0))
         tf = box.text_frame
         tf.word_wrap = True
         tf.clear()
@@ -623,7 +625,7 @@ def _add_recommendations_slide1(prs, anomalies, section):
     y += 0.42
     for a in anomalies[:5]:
         _round(s, 0.6, y + 0.04, 0.05, 0.34, RGBColor(0xF0, 0xA8, 0x20), radius=0.0)
-        _text(s, 0.8, y, 8.3, 0.45, a, size=11, color=NAVY, font=F_BODY)
+        _text(s, 0.8, y, 8.0, 0.45, a, size=11, color=NAVY, font=F_BODY)
         y += 0.5
 
 
@@ -642,7 +644,7 @@ def _add_recommendations_slide2(prs, recommendations, section):
         cp.alignment = PP_ALIGN.CENTER
         cr = cp.add_run(); cr.text = str(i); cr.font.size = Pt(13); cr.font.bold = True
         cr.font.name = F_TITLE; cr.font.color.rgb = LIME
-        _text(s, 1.15, y + 0.02, 8.0, 0.5, rec, size=12, color=NAVY, font=F_BODY,
+        _text(s, 1.15, y + 0.02, 7.7, 0.5, rec, size=12, color=NAVY, font=F_BODY,
               anchor=MSO_ANCHOR.MIDDLE)
         y += 0.6
 
@@ -662,7 +664,7 @@ def _add_recommendations_single(prs, recommendations, section):
         cp.alignment = PP_ALIGN.CENTER
         cr = cp.add_run(); cr.text = str(i); cr.font.size = Pt(13); cr.font.bold = True
         cr.font.name = F_TITLE; cr.font.color.rgb = LIME
-        _text(s, 1.15, y + 0.02, 8.0, 0.5, rec, size=12, color=NAVY, font=F_BODY,
+        _text(s, 1.15, y + 0.02, 7.7, 0.5, rec, size=12, color=NAVY, font=F_BODY,
               anchor=MSO_ANCHOR.MIDDLE)
         y += 0.6
 

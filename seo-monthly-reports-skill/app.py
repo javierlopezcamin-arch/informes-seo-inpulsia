@@ -142,8 +142,11 @@ html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;colo
 [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) p{color:var(--orange)!important;font-weight:600!important;}
 [data-testid="stRadio"] [role="radiogroup"] label>div:first-child{display:none!important;}
 
-/* Multiselect tags compact */
-[data-testid="stMultiSelect"] span[data-baseweb="tag"]{font-size:11px!important;padding:2px 6px!important;height:auto!important;}
+/* Multiselect tags compact — chips de marca: lima translúcido, texto lima, borde fino */
+[data-testid="stMultiSelect"] span[data-baseweb="tag"]{font-size:11px!important;padding:2px 6px!important;height:auto!important;background:rgba(198,255,42,.1)!important;border:1px solid rgba(198,255,42,.32)!important;border-radius:8px!important;}
+[data-testid="stMultiSelect"] span[data-baseweb="tag"] span{color:var(--orange)!important;font-weight:600!important;}
+[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg{fill:var(--orange)!important;opacity:.65;}
+[data-testid="stMultiSelect"] span[data-baseweb="tag"]:hover svg{opacity:1;}
 [data-testid="stMultiSelect"] [data-baseweb="select"] input{font-size:12px!important;}
 
 /* Checkbox */

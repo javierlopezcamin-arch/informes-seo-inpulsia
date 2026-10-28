@@ -68,16 +68,20 @@ def main():
     parser.add_argument('--boost', type=float, default=1.0, help='Factor de ajuste (1.0=real, 1.10=+10%%, 1.20=+20%%, 1.30=+30%%)')
     parser.add_argument('--validate-only', action='store_true', help='Solo validar acceso a APIs, sin generar informe')
     parser.add_argument('--upload-drive', action='store_true', help='Subir informe a Google Drive')
-    parser.add_argument('--sections', type=str, default='resumen,destacados,trafico,canales,search,keywords,pagespeed,conclusiones,glosario', help='Secciones a incluir')
+    parser.add_argument('--sections', type=str, default='resumen,destacados,trafico,canales,search,keywords,conversiones,pagespeed,conclusiones,glosario', help='Secciones a incluir')
     parser.add_argument('--no-notes', action='store_true', help='No incluir notas IA en las slides')
     parser.add_argument('--notes-level', type=str, default='analitico', choices=['positivo', 'analitico'], help='Profundidad de las notas IA')
     parser.add_argument('--design', type=str, default='inpulsia1', choices=['inpulsia1', 'inpulsia2'], help='Diseño del informe')
+    parser.add_argument('--new-ai', action='store_true', help='Redactar de nuevo con IA aunque haya una respuesta guardada para estos datos')
     parser.add_argument('--no-propuestas', action='store_true', help='No generar el archivo interno de propuestas (clientes con Ads marcado)')
     args = parser.parse_args()
 
     if args.month < 1 or args.month > 12:
         print("❌ Mes debe estar entre 1 y 12")
         return 1
+
+    if args.new_ai:
+        os.environ['IA_NUEVA'] = 'true'
 
     client = args.client
     month = args.month

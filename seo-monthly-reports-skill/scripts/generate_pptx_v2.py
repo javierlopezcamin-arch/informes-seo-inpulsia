@@ -22,7 +22,7 @@ from generate_pptx import _get_logo, _get_client_logo, convert_to_pdf, _CACHE_DI
 from generate_pptx import ROW_H, ROW_H_MIN, _rows_fit, _paginate_rows, _paginate_text
 from generate_pptx import (NARR_SIZE, SHORT_ROWS, TABLE_FONT, TABLE_HEAD_FONT, _narr_bottom, _clip,
                            _short_table, _table_font, _text_lines)
-from generate_pptx import _ai_slide_data, _decay_slide_data
+from generate_pptx import _ai_slide_data, _decay_slide_data, _conv_slide_data
 
 try:
     import charts as gcharts
@@ -796,7 +796,7 @@ def _insight_box(slide, text, y=5.07):
 
 def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
                      include_notes: bool = True) -> str:
-    ALL = {'resumen', 'destacados', 'trafico', 'canales', 'search', 'keywords', 'pagespeed', 'conclusiones'}
+    ALL = {'resumen', 'destacados', 'trafico', 'canales', 'search', 'keywords', 'conversiones', 'pagespeed', 'conclusiones'}
     sec = sections if sections else ALL
 
     month = analysis['month']
@@ -835,6 +835,7 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
     _anom = analysis.get('anomalies', [])
     _dec = _decay_slide_data(analysis) if 'recomendaciones' in sec else None
     show_recs = 'recomendaciones' in sec and bool(_recs or _anom or _dec)
+    _conv = _conv_slide_data(analysis) if 'conversiones' in sec else None
 
     # Índice dinámico — la numeración de cada sección sale siempre de aquí
     idx, n = [], 1
@@ -843,6 +844,8 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
     for key, name in order:
         if key in sec:
             idx.append((f"{n:02d}", name)); n += 1
+    if _conv:
+        idx.append((f"{n:02d}", "Conversiones desde Google")); n += 1
     if 'ads' in sec and ads:
         idx.append((f"{n:02d}", "Google Ads")); n += 1
     if 'pagespeed' in sec and pagespeed:
@@ -963,6 +966,12 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
                        for pg in pages_ga4[:9]],
                       "Páginas con más visitas durante el mes (GA4).",
                       lbl, col_widths=[6, 1.5, 1.5])
+
+    # CONVERSIONES DESDE GOOGLE (solo si la web mide eventos clave)
+    if _conv:
+        lbl = f"{int(sec_nums['Conversiones desde Google'])}. Conversiones"
+        add_table(prs, "lo que traen las visitas", "CONVERSIONES DESDE GOOGLE", _conv[0], _conv[1], _conv[2],
+                  lbl, col_widths=[w * 8.3 / 8.8 for w in _conv[3]])
 
     # GOOGLE ADS (opcional)
     if 'ads' in sec and ads:

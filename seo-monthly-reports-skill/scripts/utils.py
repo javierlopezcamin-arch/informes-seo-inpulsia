@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, json, hashlib
+import os, re, json, hashlib
 from datetime import datetime
 
 MESES = {
@@ -99,6 +99,22 @@ def fmt_text_num(text) -> str:
     return str(text).replace(",", "\x00").replace(".", ",").replace("\x00", ".")
 
 
+_NUM_EN_THOUSANDS = re.compile(r"(?<![\d.,])[1-9]\d{0,2}(?:,\d{3})+(?:\.\d+)?(?![\d,]|\.\d)")
+_NUM_EN_DECIMAL = re.compile(r"(?<![\d.,])\d+\.\d{1,2}(?![\d.,]*\d)")
+_NUM_PCT = re.compile(r"(\d)\s?%")
+
+
+def fix_ai_numbers(text: str) -> str:
+    """Cifras de un texto de IA en formato español aunque la IA use el inglés:
+    '1,330 usuarios' → '1.330' · 'CTR 61.7%' → '61,7 %' · 'posición 9.6' → '9,6'.
+    '1.330' con tres decimales se deja tal cual (ya es un millar en español)."""
+    if not isinstance(text, str):
+        return text
+    text = _NUM_EN_THOUSANDS.sub(lambda m: fmt_text_num(m.group(0)), text)
+    text = _NUM_EN_DECIMAL.sub(lambda m: m.group(0).replace(".", ","), text)
+    return _NUM_PCT.sub(lambda m: f"{m.group(1)}{NBSP}%", text)
+
+
 def fmt_num(v) -> str:
     """Cifra de un eje o etiqueta: entera con punto de miles, o con un decimal si lo tiene."""
     return fmt_int(v) if float(v).is_integer() else fmt_dec(v, 1)
@@ -192,9 +208,14 @@ def _gemini_write(count: int):
 
 
 def gemini_bump() -> int:
-    """Suma una llamada al contador diario y devuelve el total de hoy."""
-    count = gemini_usage() + 1
-    _gemini_write(count)
+    """Suma una llamada al contador diario y devuelve el total de hoy.
+    Con bloqueo de archivo: en una tanda en paralelo varios informes suman a la vez."""
+    import fcntl
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+    with open(_GEMINI_USAGE + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        count = gemini_usage() + 1
+        _gemini_write(count)
     return count
 
 

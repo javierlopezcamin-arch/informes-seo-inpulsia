@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.join(_BASE, "scripts"))
 sys.path.insert(0, _BASE)
 
 # Todas las secciones que ofrece la web, más Ads (solo sale si hay datos)
-ALL_SECTIONS = {"resumen", "destacados", "trafico", "canales", "search", "keywords", "ads",
+ALL_SECTIONS = {"resumen", "destacados", "trafico", "canales", "search", "keywords", "conversiones", "ads",
                 "pagespeed", "recomendaciones", "conclusiones", "glosario"}
 
 

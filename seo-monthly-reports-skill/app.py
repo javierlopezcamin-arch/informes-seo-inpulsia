@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, re, sys, subprocess
+import os, re, sys, subprocess, threading, time
 from datetime import datetime
 import streamlit as st
 
@@ -14,9 +14,9 @@ import access_check as ac
 
 PREFS_PATH = os.path.join(_CACHE_DIR, "ui_prefs.json")
 # Google Ads no es una sección elegible: la activa la marca de cada cliente (ADS_EN_INFORME_<CLIENTE>)
-ALL_SECTIONS = ["resumen","destacados","trafico","canales","search","keywords","pagespeed","recomendaciones","conclusiones","glosario"]
+ALL_SECTIONS = ["resumen","destacados","trafico","canales","search","keywords","conversiones","pagespeed","recomendaciones","conclusiones","glosario"]
 DEFAULT_SECTIONS = list(ALL_SECTIONS)
-SECTION_LABELS = {"resumen":"Resumen Ejecutivo","destacados":"Lo más destacado","trafico":"Tráfico Web","canales":"Canales y Audiencia","search":"Rendimiento en Google","keywords":"Keywords y Páginas","ads":"Google Ads (opcional)","pagespeed":"SEO Técnico","recomendaciones":"Recomendaciones","conclusiones":"Conclusiones","glosario":"Glosario"}
+SECTION_LABELS = {"resumen":"Resumen Ejecutivo","destacados":"Lo más destacado","trafico":"Tráfico Web","canales":"Canales y Audiencia","search":"Rendimiento en Google","keywords":"Keywords y Páginas","conversiones":"Conversiones desde Google","ads":"Google Ads (opcional)","pagespeed":"SEO Técnico","recomendaciones":"Recomendaciones","conclusiones":"Conclusiones","glosario":"Glosario"}
 # El ajuste de datos (boost) no se recuerda a propósito: debe partir siempre de "Datos reales".
 BOOSTS = {"Datos reales": "1.0", "+10 %": "1.10", "+20 %": "1.20", "+30 %": "1.30", "+50 %": "1.50"}
 PREF_DEFAULTS = {"design": "Inpulsia 2", "sections": DEFAULT_SECTIONS, "include_notes": True,
@@ -32,8 +32,9 @@ def load_prefs():
     prefs = {k: data.get(k, v) for k, v in PREF_DEFAULTS.items()}
     prefs["sections"] = [s for s in prefs["sections"] if s in ALL_SECTIONS] or DEFAULT_SECTIONS
     # Secciones nuevas desde que se guardaron las preferencias: salen activadas
-    # (las guardadas antes de existir sections_seen conocían todas menos «destacados»)
-    seen = data.get("sections_seen", [s for s in ALL_SECTIONS if s != "destacados"])
+    # (las guardadas antes de existir sections_seen conocían solo estas)
+    seen = data.get("sections_seen", ["resumen", "trafico", "canales", "search", "keywords", "pagespeed",
+                                      "recomendaciones", "conclusiones", "glosario"])
     prefs["sections"] = [s for s in ALL_SECTIONS if s in prefs["sections"] or s not in seen]
     if prefs["design"] not in ("Inpulsia 1", "Inpulsia 2"): prefs["design"] = PREF_DEFAULTS["design"]
     if prefs["notes_level"] not in ("Analítico", "Positivo"): prefs["notes_level"] = PREF_DEFAULTS["notes_level"]
@@ -57,27 +58,74 @@ def main_cmd(client, month, year, *extra):
             "--month", str(month), "--year", str(year), *extra]
 
 
+BATCH_WORKERS = 3   # informes a la vez en una tanda (cada cliente es otra propiedad de GA4)
+# Pasos de main.py que se muestran como estado de cada informe mientras se genera
+_STEP_ICONS = ("🔍", "📊", "📈", "📣", "📐", "⚡", "🔎", "🔬", "📄", "📝", "☁️")
+
+
+def _new_result():
+    return {"rc": None, "filepath": None, "drive_url": None, "propuestas": None, "warns": [], "lines": [], "step": ""}
+
+
+def _parse_line(line, res):
+    """Recoge de una línea de main.py la ruta del informe, el enlace de Drive, los avisos y el paso actual."""
+    res["lines"].append(line.rstrip())
+    if "PPTX:" in line:
+        res["filepath"] = line.split("PPTX:", 1)[1].strip()
+    if "PROPUESTAS:" in line:
+        res["propuestas"] = line.split("PROPUESTAS:", 1)[1].strip()
+    # Avisos de main.py (⚠️ parcial, ❌ error): se muestran en el resultado, no solo en el registro
+    w = line.strip()
+    if w.startswith(("⚠️", "❌")) and w not in res["warns"]:
+        res["warns"].append(w)
+    if line.startswith(_STEP_ICONS):  # los pasos van sin sangría; los resultados («  📄 PPTX:») con ella
+        res["step"] = w.lstrip("".join(_STEP_ICONS) + " \ufe0f").rstrip(". ")
+    m = re.search(r"(https://drive\.google\.com/\S+)", line)
+    if m and "Propuestas" not in line:
+        res["drive_url"] = m.group(1)
+
+
+def _popen(cmd, env=None):
+    return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=BASE_DIR, env=env)
+
+
 def run_report(cmd, log_box, tail=16, env=None):
-    """Ejecuta main.py mostrando su salida en vivo.
-    Devuelve (returncode, pptx_path, drive_url, propuestas_path, avisos)."""
-    lines, filepath, drive_url, prop_path, warns = [], None, None, None, []
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=BASE_DIR, env=env)
+    """Ejecuta main.py mostrando su salida en vivo. Devuelve el resultado (ver _new_result)."""
+    res = _new_result()
+    proc = _popen(cmd, env)
     for line in proc.stdout:
-        lines.append(line.rstrip())
-        log_box.code("\n".join(lines[-tail:]), language=None)
-        if "PPTX:" in line:
-            filepath = line.split("PPTX:", 1)[1].strip()
-        if "PROPUESTAS:" in line:
-            prop_path = line.split("PROPUESTAS:", 1)[1].strip()
-        # Avisos de main.py (⚠️ parcial, ❌ error): se muestran en el resultado, no solo en el registro
-        w = line.strip()
-        if w.startswith(("⚠️", "❌")) and w not in warns:
-            warns.append(w)
-        m = re.search(r"(https://drive\.google\.com/\S+)", line)
-        if m and "Propuestas" not in line:
-            drive_url = m.group(1)
+        _parse_line(line, res)
+        log_box.code("\n".join(res["lines"][-tail:]), language=None)
     proc.wait()
-    return proc.returncode, filepath, drive_url, prop_path, warns
+    res["rc"] = proc.returncode
+    return res
+
+
+def _read_report(proc, res):
+    for line in proc.stdout:
+        _parse_line(line, res)
+    proc.wait()
+    res["rc"] = proc.returncode
+
+
+def run_parallel(jobs, on_tick):
+    """Ejecuta varios main.py a la vez (como mucho BATCH_WORKERS). jobs: [(cliente, cmd, env)].
+    on_tick(resultados, en_marcha) se llama cada medio segundo para pintar el progreso.
+    Los hilos solo leen la salida; la página se actualiza desde el hilo principal."""
+    queue, running = list(jobs), {}
+    res = {c: _new_result() for c, _, _ in jobs}
+    while queue or running:
+        while queue and len(running) < BATCH_WORKERS:
+            c, cmd, env = queue.pop(0)
+            t = threading.Thread(target=_read_report, args=(_popen(cmd, env), res[c]), daemon=True)
+            t.start()
+            running[c] = t
+        for c in [c for c, t in running.items() if not t.is_alive()]:
+            running.pop(c)
+        on_tick(res, set(running))
+        time.sleep(0.5)
+    return res
+
 
 MESES = {1:"Enero",2:"Febrero",3:"Marzo",4:"Abril",5:"Mayo",6:"Junio",
          7:"Julio",8:"Agosto",9:"Septiembre",10:"Octubre",11:"Noviembre",12:"Diciembre"}
@@ -633,51 +681,87 @@ def show_warns(warns):
             st.markdown("\n".join(f"- {html.escape(w.lstrip('⚠️❌ ').strip())}" for w in warns))
 
 
-def execute_batch(sel, params):
+def execute_batch(sel, params, keep=None):
+    """Genera los informes de `sel`. keep: resultados de una tanda anterior que se conservan
+    (al reintentar los fallidos, los que ya salieron bien siguen en la lista)."""
     month, year, opts, budget = params["month"], params["year"], params["opts"], params["ai_budget"]
     n = len(sel)
     st.session_state.pop("last_report", None)
+    st.session_state.pop("last_batch", None)
 
     def env_for(i):
-        # Sin cuota de Gemini: IA_ENABLED=false evita la llamada (main.py no pisa variables ya definidas)
-        return dict(os.environ, IA_ENABLED="false") if budget is not None and i >= budget else None
+        # Sin cuota de Gemini: no se hace la llamada, pero sí se reutiliza una respuesta guardada
+        return dict(os.environ, IA_SIN_LLAMADAS="true") if budget is not None and i >= budget else None
 
-    if n == 1:
+    if n == 1 and not keep:
         c = sel[0]
-        with st.status(f"Procesando {c} - {MESES[month]} {year}...", expanded=True) as status:
-            rc, filepath, drive_url, prop_path, warns = run_report(main_cmd(c, month, year, *opts), st.empty(), env=env_for(0))
-            if rc == 0:
+        with st.status(f"Procesando {display_name(c)} - {MESES[month]} {year}...", expanded=True) as status:
+            r = run_report(main_cmd(c, month, year, *opts), st.empty(), env=env_for(0))
+            if r["rc"] == 0:
                 status.update(label="Informe generado", state="complete")
-                st.session_state["last_report"] = {"client": c, "month": MESES[month], "year": year, "filepath": filepath,
-                                                   "drive_url": drive_url, "propuestas": prop_path, "warns": warns}
-            else:
-                status.update(label="Error al generar", state="error")
-                st.error("Revisa el registro.")
+                st.session_state["last_report"] = {"client": display_name(c), "month": MESES[month], "year": year,
+                                                   "filepath": r["filepath"], "drive_url": r["drive_url"],
+                                                   "propuestas": r["propuestas"], "warns": r["warns"]}
+                return
+            status.update(label="Error al generar", state="error")
+        st.session_state["last_batch"] = {"results": [(c, r)], "params": params}
         return
 
-    prog = st.progress(0.0, text="Iniciando...")
-    results, props = [], []
-    for i, c in enumerate(sel):
-        prog.progress(i / n, text=f"Generando {c} ({i+1}/{n})...")
-        with st.status(f"{c}", expanded=False) as status:
-            rc, filepath, drive_url, prop_path, warns = run_report(main_cmd(c, month, year, *opts), st.empty(), tail=8, env=env_for(i))
-            status.update(label=f"{c} · {'listo' if rc == 0 else 'error'}", state="complete" if rc == 0 else "error")
-        results.append((c, rc == 0, filepath, drive_url, warns))
-        if prop_path:
-            props.append(prop_path)
-    prog.progress(1.0, text="Completado")
-    ok = sum(1 for _, r, _, _, _ in results if r)
+    prog = st.progress(0.0, text=f"Generando {n} informes ({min(n, BATCH_WORKERS)} a la vez)...")
+    rows = {c: st.empty() for c in sel}
+    shown = {}
+
+    def tick(res, running):
+        done = sum(1 for r in res.values() if r["rc"] is not None)
+        prog.progress(done / n, text=f"{done}/{n} informes · {len(running)} en marcha")
+        for c, r in res.items():
+            if r["rc"] is not None:
+                icon, txt = ("✅", "listo") if r["rc"] == 0 else ("❌", "error")
+            elif c in running:
+                icon, txt = "⏳", r["step"] or "empezando"
+            else:
+                icon, txt = "·", "en cola"
+            line = f"{icon} **{display_name(c)}** · {html.escape(txt)}"
+            if shown.get(c) != line:
+                rows[c].markdown(line)
+                shown[c] = line
+
+    res = run_parallel([(c, main_cmd(c, month, year, *opts), env_for(i)) for i, c in enumerate(sel)], tick)
+    prog.empty()
+    for ph in rows.values():
+        ph.empty()
+    st.session_state["last_batch"] = {"results": list(keep or []) + [(c, res[c]) for c in sel], "params": params}
+
+
+def show_batch(batch):
+    """Resultado de la última tanda: estado de cada informe, avisos y «Reintentar los fallidos».
+    Vive en la sesión para que sus botones sigan funcionando tras pulsarlos."""
+    results, params = batch["results"], batch["params"]
+    n, ok = len(results), [(c, r) for c, r in results if r["rc"] == 0]
+    failed = [c for c, r in results if r["rc"] != 0]
     drive_msg = " y subidos a Drive" if params["upload_drive"] else ""
-    (st.success if ok == n else st.warning)(f"{ok}/{n} informes generados{drive_msg}.")
-    for c, r, fp, du, ws in results:
-        link = f" · [Abrir en Drive]({du})" if du else ""
-        fname = f" · `{os.path.basename(fp)}`" if fp else ""
-        icon = "❌" if not r else ("⚠️" if ws else "✅")
-        st.markdown(f"{icon} **{c}**{fname}{link}")
-        show_warns(ws)
-    _dirs = {os.path.dirname(fp) for _, r, fp, _, _ in results if r and fp}
+    (st.success if not failed else st.warning)(f"{len(ok)}/{n} informes generados{drive_msg}.")
+    for c, r in results:
+        link = f" · [Abrir en Drive]({r['drive_url']})" if r["drive_url"] else ""
+        fname = f" · `{os.path.basename(r['filepath'])}`" if r["filepath"] else ""
+        icon = "❌" if r["rc"] != 0 else ("⚠️" if r["warns"] else "✅")
+        st.markdown(f"{icon} **{display_name(c)}**{fname}{link}")
+        if r["rc"] != 0:
+            with st.expander("Registro del error", expanded=False):
+                st.code("\n".join(r["lines"][-14:]) or "Sin salida", language=None)
+        else:
+            show_warns(r["warns"])
+    if failed and st.button(f"Reintentar los fallidos ({len(failed)})", type="primary",
+                            use_container_width=True, key="retry_failed"):
+        retry = dict(params)
+        if retry["ai_budget"] is not None:  # la cuota que queda ahora, no la de la tanda original
+            retry["ai_budget"] = max(0, GEMINI_DAILY_LIMIT - gemini_usage())
+        execute_batch(failed, retry, keep=ok)
+        st.rerun()
+    _dirs = {os.path.dirname(r["filepath"]) for _, r in ok if r["filepath"]}
+    props = [r["propuestas"] for _, r in ok if r["propuestas"]]
     if len(_dirs) == 1 and st.button("Abrir carpeta de informes", use_container_width=True, key="open_batch_dir"):
-        subprocess.run(["open", _dirs.pop()])
+        subprocess.run(["open", next(iter(_dirs))])
     if props:
         st.caption(f"📝 {len(props)} archivo(s) de propuestas internos en `{os.path.dirname(props[0])}`")
         if st.button("Abrir carpeta de propuestas", use_container_width=True, key="open_props_dir"):
@@ -742,6 +826,9 @@ with tab1:
                 notes_level = {"Analítico": "analitico", "Positivo": "positivo"}[notes_level_opt]
             with _nc3:
                 upload_drive = st.checkbox("Subir a Google Drive", key="upload_drive")
+            new_ai = st.checkbox("Redactar de nuevo con IA", value=False, key="new_ai",
+                                 help="Si este informe ya se generó con los mismos datos, se reutiliza el texto de IA "
+                                      "guardado y no se gasta cuota. Marca esto para pedir una redacción nueva.")
             boost_opt = st.segmented_control("Ajuste de datos", list(BOOSTS), default="Datos reales",
                                              required=True, key="boost")
             boost_val = BOOSTS[boost_opt]
@@ -797,6 +884,8 @@ with tab1:
             _opts.append("--no-notes")
         if upload_drive:
             _opts.append("--upload-drive")
+        if new_ai:
+            _opts.append("--new-ai")
         params = {"month": month, "year": year, "opts": _opts, "ai_budget": ai_budget, "upload_drive": upload_drive}
 
         if _gen:
@@ -832,6 +921,10 @@ with tab1:
                 pend_box.empty()
                 if not cancel:
                     execute_batch(pending["clients"] if go_all else keep, pending["params"])
+
+    batch = st.session_state.get("last_batch")
+    if batch:
+        show_batch(batch)
 
     report = st.session_state.get("last_report")
     if report:

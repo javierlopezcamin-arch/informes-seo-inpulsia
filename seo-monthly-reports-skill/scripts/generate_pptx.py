@@ -12,7 +12,7 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION
 from pptx.dml.color import RGBColor
 from pptx.chart.data import CategoryChartData
-from utils import MESES, get_output_dir, fmt_int, fmt_dec, fmt_pct, fmt_text_num, display_name
+from utils import MESES, get_output_dir, fmt_int, fmt_dec, fmt_pct, fmt_num, fmt_text_num, display_name
 
 try:
     import charts as gcharts
@@ -1037,6 +1037,31 @@ def _decay_slide_data(analysis):
     return rows, narrative
 
 
+def _conv_slide_data(analysis):
+    """Páginas de entrada desde Google que más conversiones (eventos clave de GA4) generan.
+    Solo si la web las mide; datos reales (el ajuste de datos no se aplica)."""
+    land = (analysis.get('seo_insights') or {}).get('landings') or {}
+    pages, total = land.get('top_conv') or [], land.get('organic_key_events') or 0
+    if not pages or total < 1:
+        return None
+    sess = land.get('organic_sessions') or 0
+    def short(p):
+        p = p or "/"
+        return "Inicio (/)" if p == "/" else (p if len(p) <= 46 else p[:44] + "…")
+    # Varios eventos clave por visita (p. ej. clic en teléfono y formulario) darían tasas de más del 100 %
+    with_rate = sess and total <= sess and all(r['key_events'] <= r['sessions'] for r in pages)
+    rate = f", un {fmt_pct(total / sess * 100)} de esas visitas" if with_rate else ""
+    narrative = (f"{fmt_num(total)} conversiones (contactos, llamadas, formularios…) llegaron este mes desde la "
+                 f"búsqueda en Google, en {fmt_int(sess)} visitas{rate}. "
+                 f"La página que más aporta es {short(pages[0]['page'])}, con {fmt_num(pages[0]['key_events'])}.")
+    headers = ["Página de entrada", "Visitas desde Google", "Conversiones"] + (["Tasa"] if with_rate else []) + ["Posición"]
+    rows = [[short(r['page']), fmt_int(r['sessions']), fmt_num(r['key_events'])]
+            + ([fmt_pct(r['key_events'] / r['sessions'] * 100) if r['sessions'] else "—"] if with_rate else [])
+            + [fmt_dec(r['position']) if r.get('position') else "—"] for r in pages]
+    widths = [3.9, 1.6, 1.3, 1.0, 1.0] if with_rate else [4.4, 1.8, 1.4, 1.1]
+    return headers, rows, narrative, widths
+
+
 def add_table_slide(prs, title: str, headers: list, rows: list, narrative: str = "",
                     section: str = "", section_num: str = "", col_widths: list = None,
                     note: str = None):
@@ -1513,7 +1538,7 @@ def add_glossary_slide(prs):
 
 
 def generate_pptx(analysis: dict, client_name: str, sections: set = None, include_notes: bool = True) -> str:
-    ALL = {'resumen','destacados','trafico','canales','search','keywords','pagespeed','conclusiones'}
+    ALL = {'resumen','destacados','trafico','canales','search','keywords','conversiones','pagespeed','conclusiones'}
     sec = sections if sections else ALL
     month   = analysis['month']
     year    = analysis['year']
@@ -1553,6 +1578,7 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
     _anom = analysis.get('anomalies', [])
     _dec = _decay_slide_data(analysis) if 'recomendaciones' in sec else None
     show_recs = 'recomendaciones' in sec and bool(_recs or _anom or _dec)
+    _conv = _conv_slide_data(analysis) if 'conversiones' in sec else None
 
     # 2. ÍNDICE DINÁMICO — la numeración de cada sección sale siempre de aquí
     idx_sections = []
@@ -1565,6 +1591,8 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
         idx_sections.append((f"{idx_n:02d}", "Rendimiento en Google")); idx_n += 1
     if 'keywords' in sec:
         idx_sections.append((f"{idx_n:02d}", "Keywords y Páginas")); idx_n += 1
+    if _conv:
+        idx_sections.append((f"{idx_n:02d}", "Conversiones desde Google")); idx_n += 1
     if 'ads' in sec and ads:
         idx_sections.append((f"{idx_n:02d}", "Google Ads")); idx_n += 1
     if 'pagespeed' in sec and pagespeed:
@@ -1713,6 +1741,12 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
                               fmt_pct(pg.get('percentage', 0))] for pg in pages_ga4[:9]],
                             "Páginas con más visitas durante el mes (GA4).",
                             s_label, s_num, col_widths=[6, 1.5, 1.5])
+
+    # CONVERSIONES DESDE GOOGLE (solo si la web mide eventos clave)
+    if _conv:
+        s_num = sec_nums["Conversiones desde Google"]
+        add_table_slide(prs, "Conversiones desde Google", _conv[0], _conv[1], _conv[2],
+                        f"{int(s_num)}. Conversiones", s_num, col_widths=_conv[3])
 
     # GOOGLE ADS (opcional)
     if 'ads' in sec and ads:

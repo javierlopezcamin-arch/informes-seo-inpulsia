@@ -4,11 +4,14 @@ Analizador de datos SEO
 Interpreta datos de GA4 y Search Console, genera narrativas en español
 """
 
+import hashlib
 from typing import Dict
 from datetime import datetime
-from utils import MESES, NBSP, pct_delta, abs_delta, fmt_int, fmt_dec, fmt_pct
+from utils import (MESES, NBSP, pct_delta, abs_delta, fmt_int, fmt_dec, fmt_pct, fix_ai_numbers,
+                   cache_read, cache_write)
 
 AI_TIMEOUT_MS = 90_000
+AI_CACHE_HOURS = 24 * 60
 # Keywords sin ruido en «Top keywords» y «Oportunidades»
 KW_MIN_IMPRESSIONS, KW_MAX_POSITION = 10, 50
 
@@ -648,8 +651,6 @@ class SEOAnalyzer:
         import os
         if os.getenv("IA_ENABLED", "true").lower() == "false":
             return {}
-        if not (os.getenv("GOOGLE_GEMINI_API_KEY", "").strip() or os.getenv("ANTHROPIC_API_KEY", "").strip()):
-            return {}
 
         t = self.analyze_traffic()
         sc = self.analyze_search_console()
@@ -685,9 +686,23 @@ class SEOAnalyzer:
             f"Top keywords: {top_kw}\nSuben: {gained}\nBajan: {lost}\nOportunidades pág.2: {opp_list}"
             f"{self._insights_prompt()}"
         )
+        # Mismos datos y nivel → misma respuesta guardada, sin gastar otra llamada
+        # (IA_NUEVA=true pide redactarla de nuevo)
+        cache_key = "ai_bundle_v1_" + hashlib.md5(prompt.encode()).hexdigest()
+        if os.getenv("IA_NUEVA", "false").lower() != "true":
+            cached = cache_read(cache_key, AI_CACHE_HOURS)
+            if cached:
+                print("  ♻️  IA: se reutiliza la respuesta guardada para estos datos (0 llamadas)")
+                return cached
+        if os.getenv("IA_SIN_LLAMADAS", "false").lower() == "true":
+            print("  ℹ️  IA: sin cuota para este informe; se usará texto genérico")
+            return {}
+        if not (os.getenv("GOOGLE_GEMINI_API_KEY", "").strip() or os.getenv("ANTHROPIC_API_KEY", "").strip()):
+            return {}
         print(f"  🤖 IA: análisis (nivel {level}, 1 llamada)")
         data = self._bundle_gemini(prompt) or self._bundle_claude(prompt)
         if data:
+            cache_write(cache_key, data)
             print("  ✅ IA: análisis completo generado")
         else:
             print("  ⚠️  IA: sin respuesta; se usará texto genérico")
@@ -706,8 +721,21 @@ class SEOAnalyzer:
         return ("\n" + "\n".join(lines)) if lines else ""
 
     # ── Análisis completo ────────────────────────────────────
+    @staticmethod
+    def _clean_bundle(bundle: Dict) -> Dict:
+        """Cifras de la IA en formato español aunque se salte la instrucción del prompt."""
+        def fix(v):
+            if isinstance(v, str):
+                return fix_ai_numbers(v)
+            if isinstance(v, list):
+                return [fix(x) for x in v]
+            if isinstance(v, dict):
+                return {k: fix(x) for k, x in v.items()}
+            return v
+        return fix(bundle or {})
+
     def get_full_analysis(self, historical: list = None, notes_level: str = "analitico") -> Dict:
-        bundle = self.generate_ai_bundle(notes_level)
+        bundle = self._clean_bundle(self.generate_ai_bundle(notes_level))
         exec_summary = "\n".join(bundle.get('executive_summary', [])) if bundle.get('executive_summary') else ""
         return {
             'month': self.month,

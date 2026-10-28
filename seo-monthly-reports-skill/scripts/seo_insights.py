@@ -169,7 +169,7 @@ def ai_traffic(property_id: str, month: int, year: int) -> dict:
 def organic_landings(property_id: str, site_url: str, month: int, year: int) -> dict:
     """Cruce por URL de Search Console (visibilidad) y GA4 Organic Search (conversión)."""
     tag = hashlib.md5(site_url.encode()).hexdigest()[:8]
-    cache_key = f"landings_{property_id}_{tag}_{year}_{month:02d}_v2"
+    cache_key = f"landings_{property_id}_{tag}_{year}_{month:02d}_v3"
     cached = cache_read(cache_key, month_ttl_hours(month, year))
     if cached:
         return cached
@@ -177,7 +177,8 @@ def organic_landings(property_id: str, site_url: str, month: int, year: int) -> 
     ga = {}
     for r in _ga4_rows(property_id, month, year, "landingPage", channel="Organic Search"):
         k = _key(r['key'].split("?")[0])
-        a = ga.setdefault(k, {'sessions': 0, 'key_events': 0, 'engagement': r['engagement']})
+        a = ga.setdefault(k, {'path': r['key'].split("?")[0] or "/", 'sessions': 0, 'key_events': 0,
+                              'engagement': r['engagement']})
         a['sessions'] += r['sessions']
         a['key_events'] += r['key_events']
     sc = _by_page(_sc_pages(site_url, *_range(month, year, month, year), limit=500))
@@ -190,7 +191,13 @@ def organic_landings(property_id: str, site_url: str, month: int, year: int) -> 
                               and r['key_events'] == 0], key=lambda r: -r['clicks'])[:8]
     conv_low_vis = sorted([r for r in rows if r['key_events'] >= 1 and r['position'] > 10],
                           key=lambda r: -r['key_events'])[:8]
-    data = {'measured': measured, 'visible_no_conv': visible_no_conv, 'conv_low_vis': conv_low_vis}
+    # Páginas de entrada desde Google que más conversiones (eventos clave) generan
+    top_conv = sorted([{'page': a['path'], 'sessions': a['sessions'], 'key_events': a['key_events'],
+                        'position': sc.get(k, {}).get('position')}
+                       for k, a in ga.items() if a['key_events'] >= 1], key=lambda r: (-r['key_events'], -r['sessions']))[:8]
+    data = {'measured': measured, 'visible_no_conv': visible_no_conv, 'conv_low_vis': conv_low_vis,
+            'top_conv': top_conv, 'organic_sessions': sum(a['sessions'] for a in ga.values()),
+            'organic_key_events': round(sum(a['key_events'] for a in ga.values()), 1)}
     cache_write(cache_key, data)
     return data
 

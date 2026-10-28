@@ -11,12 +11,13 @@ Claude "Clientes Inpulsia" (MCP de Google Ads + MCP de Elementor de la web).
   - Siempre con datos reales (sin el ajuste +10%…+50% del informe).
 """
 
+import hashlib
 import json
 import os
 import re
 import unicodedata
 
-from utils import MESES, get_output_dir, gemini_usage, GEMINI_DAILY_LIMIT, gemini_bump, gemini_mark_exhausted
+from utils import MESES, get_output_dir, cache_read, cache_write, gemini_usage, GEMINI_DAILY_LIMIT, gemini_bump, gemini_mark_exhausted
 
 AI_TIMEOUT_MS = 90_000
 
@@ -194,15 +195,6 @@ def _ai_posts(client: str, base: str, month: int, year: int, sig: dict, kw_rows:
     if os.getenv("IA_ENABLED", "true").lower() == "false":
         print("  ℹ️  Propuestas: IA desactivada; los posts quedan como tarea para Claude")
         return []
-    key = os.getenv("GOOGLE_GEMINI_API_KEY", "").strip()
-    if not key or gemini_usage() >= GEMINI_DAILY_LIMIT:
-        print("  ℹ️  Propuestas: sin cupo de Gemini; los posts quedan como tarea para Claude")
-        return []
-    try:
-        from google import genai
-    except ImportError:
-        return []
-
     links = [p["url"] for p in wp.get("pages", [])[:30]] + [p["url"] for p in wp.get("posts", [])[:30]]
     existing = [p["title"] for p in wp.get("posts", [])[:60]]
     kw_txt = "\n".join(f"- {r['kw']} | {r['fuente']} | {r['impr']} | pos {r['pos'] or '—'} | {r['uso']}" for r in kw_rows) or "- (sin datos)"
@@ -224,6 +216,30 @@ def _ai_posts(client: str, base: str, month: int, year: int, sig: dict, kw_rows:
         f"Posts ya publicados: {json.dumps(existing, ensure_ascii=False)}\n"
         f"URLs disponibles para enlazar: {json.dumps(links, ensure_ascii=False)}"
     )
+    # Mismos datos → mismos posts guardados, sin gastar otra llamada (IA_NUEVA=true los pide de nuevo)
+    cache_key = "ai_posts_v1_" + hashlib.md5(prompt.encode()).hexdigest()
+    cached = None if os.getenv("IA_NUEVA", "false").lower() == "true" else cache_read(cache_key, 24 * 60)
+    key = os.getenv("GOOGLE_GEMINI_API_KEY", "").strip()
+    if cached:
+        print("  ♻️  Propuestas: se reutilizan los posts guardados para estos datos (0 llamadas)")
+        posts = cached.get("posts", [])
+    elif (not key or gemini_usage() >= GEMINI_DAILY_LIMIT
+          or os.getenv("IA_SIN_LLAMADAS", "false").lower() == "true"):
+        print("  ℹ️  Propuestas: sin cupo de Gemini; los posts quedan como tarea para Claude")
+        return []
+    else:
+        posts = _ai_posts_call(key, prompt)
+        if posts is None:
+            return []
+        cache_write(cache_key, {"posts": posts})
+    return _valid_posts(posts, links, wp)
+
+
+def _ai_posts_call(key: str, prompt: str):
+    try:
+        from google import genai
+    except ImportError:
+        return None
     try:
         # El cliente debe vivir en una variable: si se encadena, se cierra antes de la petición
         client_ai = genai.Client(api_key=key, http_options={"timeout": AI_TIMEOUT_MS})
@@ -235,8 +251,11 @@ def _ai_posts(client: str, base: str, month: int, year: int, sig: dict, kw_rows:
         if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             gemini_mark_exhausted()
         print(f"  ⚠️  Propuestas: IA sin respuesta válida ({type(e).__name__}); los posts quedan como tarea")
-        return []
+        return None
+    return posts if isinstance(posts, list) else None
 
+
+def _valid_posts(posts: list, links: list, wp: dict) -> list:
     valid = set(links)
     out = []
     for p in posts[:2]:

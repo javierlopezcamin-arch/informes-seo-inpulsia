@@ -1480,7 +1480,13 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
     if 'resumen' in sec:
         add_executive_slide(prs, exec_summary, month, year)
 
-    # 2. ÍNDICE DINÁMICO
+    # Señales y análisis que deciden si «Análisis y Recomendaciones» sale (índice y diapositivas)
+    _recs = analysis.get('recommendations', [])
+    _anom = analysis.get('anomalies', [])
+    _dec = _decay_slide_data(analysis) if 'recomendaciones' in sec else None
+    show_recs = 'recomendaciones' in sec and bool(_recs or _anom or _dec)
+
+    # 2. ÍNDICE DINÁMICO — la numeración de cada sección sale siempre de aquí
     idx_sections = []
     idx_n = 1
     if 'trafico' in sec:
@@ -1495,7 +1501,7 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
         idx_sections.append((f"{idx_n:02d}", "Google Ads")); idx_n += 1
     if 'pagespeed' in sec and pagespeed:
         idx_sections.append((f"{idx_n:02d}", "SEO Técnico")); idx_n += 1
-    if 'recomendaciones' in sec and (analysis.get('recommendations') or analysis.get('anomalies')):
+    if show_recs:
         idx_sections.append((f"{idx_n:02d}", "Análisis y Recomendaciones")); idx_n += 1
     if 'conclusiones' in sec:
         idx_sections.append((f"{idx_n:02d}", "Conclusiones y Próximos Pasos"))
@@ -1504,7 +1510,7 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
 
     # TRÁFICO
     if 'trafico' in sec:
-        s_num = sec_nums.get("Tráfico Web", "01")
+        s_num = sec_nums["Tráfico Web"]
         s_label = f"{int(s_num)}. Tráfico Web"
 
         mom_metrics = mom.get('metrics', [])
@@ -1552,7 +1558,7 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
 
     # CANALES Y AUDIENCIA
     if 'canales' in sec:
-        s_num = sec_nums.get("Canales y Audiencia", "02")
+        s_num = sec_nums["Canales y Audiencia"]
         s_label = f"{int(s_num)}. Canales y Audiencia"
 
         ch_list = channels_d.get('channels', [])
@@ -1587,7 +1593,7 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
 
     # RENDIMIENTO EN GOOGLE
     if 'search' in sec:
-        s_num = sec_nums.get("Rendimiento en Google", "03")
+        s_num = sec_nums["Rendimiento en Google"]
         s_label = f"{int(s_num)}. Rendimiento en Google"
 
         add_kpi_slide(prs, "Google Search Console", sc['narrative'], [
@@ -1615,7 +1621,7 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
 
     # KEYWORDS Y PÁGINAS
     if 'keywords' in sec:
-        s_num = sec_nums.get("Keywords y Páginas", "04")
+        s_num = sec_nums["Keywords y Páginas"]
         s_label = f"{int(s_num)}. Keywords y Páginas"
 
         kws = kw.get('top_keywords', [])[:9]
@@ -1642,7 +1648,7 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
 
     # GOOGLE ADS (opcional)
     if 'ads' in sec and ads:
-        s_num = sec_nums.get("Google Ads", "05")
+        s_num = sec_nums["Google Ads"]
         s_label = f"{int(s_num)}. Google Ads"
         cur = ads['currency']
         show_conv = ads.get('show_conversions', False)
@@ -1681,24 +1687,21 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
 
     # SEO TÉCNICO
     if 'pagespeed' in sec and pagespeed:
-        s_num = sec_nums.get("SEO Técnico", "05")
+        s_num = sec_nums["SEO Técnico"]
         add_pagespeed_slide(prs, pagespeed, f"{int(s_num)}. SEO Técnico", s_num)
 
     # ANÁLISIS Y RECOMENDACIONES
-    _recs = analysis.get('recommendations', [])
-    _anom = analysis.get('anomalies', [])
-    _dec = _decay_slide_data(analysis) if 'recomendaciones' in sec else None
-    if _dec:
-        s_num = sec_nums.get("Análisis y Recomendaciones", "06")
-        add_table_slide(prs, "Páginas que Pierden Visitas", ["Página", "Clics antes", "Clics ahora", "Cambio"],
-                        _dec[0], _dec[1], f"{int(s_num)}. Recomendaciones", s_num, col_widths=[4.9, 1.3, 1.3, 1.2])
-    if 'recomendaciones' in sec and (_recs or _anom):
-        s_num = sec_nums.get("Análisis y Recomendaciones", "06")
-        add_recommendations_slide(prs, _recs, _anom, f"{int(s_num)}. Recomendaciones", s_num)
+    if show_recs:
+        s_num = sec_nums["Análisis y Recomendaciones"]
+        if _dec:
+            add_table_slide(prs, "Páginas que Pierden Visitas", ["Página", "Clics antes", "Clics ahora", "Cambio"],
+                            _dec[0], _dec[1], f"{int(s_num)}. Recomendaciones", s_num, col_widths=[4.9, 1.3, 1.3, 1.2])
+        if _recs or _anom:
+            add_recommendations_slide(prs, _recs, _anom, f"{int(s_num)}. Recomendaciones", s_num)
 
     # CONCLUSIONES
     if 'conclusiones' in sec:
-        s_num = sec_nums.get("Conclusiones y Próximos Pasos", "05")
+        s_num = sec_nums["Conclusiones y Próximos Pasos"]
         add_text_slide(prs, "Conclusiones y Próximos Pasos", analysis['conclusions'],
                        f"{int(s_num)}. Conclusiones", s_num)
 

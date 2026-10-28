@@ -773,7 +773,13 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
     if 'resumen' in sec:
         add_executive(prs, exec_summary, month, year)
 
-    # Índice dinámico
+    # Señales y análisis que deciden si «Análisis y Recomendaciones» sale (índice y diapositivas)
+    _recs = analysis.get('recommendations', [])
+    _anom = analysis.get('anomalies', [])
+    _dec = _decay_slide_data(analysis) if 'recomendaciones' in sec else None
+    show_recs = 'recomendaciones' in sec and bool(_recs or _anom or _dec)
+
+    # Índice dinámico — la numeración de cada sección sale siempre de aquí
     idx, n = [], 1
     order = [('trafico', "Tráfico Web"), ('canales', "Canales y Audiencia"),
              ('search', "Rendimiento en Google"), ('keywords', "Keywords y Páginas")]
@@ -784,7 +790,7 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
         idx.append((f"{n:02d}", "Google Ads")); n += 1
     if 'pagespeed' in sec and pagespeed:
         idx.append((f"{n:02d}", "SEO Técnico")); n += 1
-    if 'recomendaciones' in sec and (analysis.get('recommendations') or analysis.get('anomalies')):
+    if show_recs:
         idx.append((f"{n:02d}", "Análisis y Recomendaciones")); n += 1
     if 'conclusiones' in sec:
         idx.append((f"{n:02d}", "Conclusiones y Próximos Pasos"))
@@ -793,7 +799,7 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
 
     # TRÁFICO
     if 'trafico' in sec:
-        num = sec_nums.get("Tráfico Web", "01")
+        num = sec_nums["Tráfico Web"]
         lbl = f"{int(num)}. Tráfico Web"
 
         mom_metrics = mom.get('metrics', [])
@@ -828,7 +834,7 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
 
     # CANALES
     if 'canales' in sec:
-        num = sec_nums.get("Canales y Audiencia", "02")
+        num = sec_nums["Canales y Audiencia"]
         lbl = f"{int(num)}. Canales y Audiencia"
 
         ch_list = channels_d.get('channels', [])
@@ -855,7 +861,7 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
 
     # SEARCH
     if 'search' in sec:
-        num = sec_nums.get("Rendimiento en Google", "03")
+        num = sec_nums["Rendimiento en Google"]
         lbl = f"{int(num)}. Rendimiento en Google"
 
         add_kpi(prs, "tu visibilidad en google", "RENDIMIENTO EN BÚSQUEDA", sc['narrative'], [
@@ -875,7 +881,7 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
 
     # KEYWORDS
     if 'keywords' in sec:
-        num = sec_nums.get("Keywords y Páginas", "04")
+        num = sec_nums["Keywords y Páginas"]
         lbl = f"{int(num)}. Keywords y Páginas"
 
         kws = kw.get('top_keywords', [])[:9]
@@ -901,7 +907,7 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
 
     # GOOGLE ADS (opcional)
     if 'ads' in sec and ads:
-        num = sec_nums.get("Google Ads", "05")
+        num = sec_nums["Google Ads"]
         lbl = f"{int(num)}. Google Ads"
         cur = ads['currency']
         show_conv = ads.get('show_conversions', False)
@@ -938,23 +944,20 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
     add_panel_screenshots(prs, client_name)
 
     if 'pagespeed' in sec and pagespeed:
-        num = sec_nums.get("SEO Técnico", "05")
+        num = sec_nums["SEO Técnico"]
         add_pagespeed(prs, pagespeed, f"{int(num)}. SEO Técnico")
 
-    _recs = analysis.get('recommendations', [])
-    _anom = analysis.get('anomalies', [])
-    _dec = _decay_slide_data(analysis) if 'recomendaciones' in sec else None
-    if _dec:
-        num = sec_nums.get("Análisis y Recomendaciones", "06")
-        add_table(prs, "qué conviene actualizar", "PÁGINAS QUE PIERDEN VISITAS",
-                  ["Página", "Clics antes", "Clics ahora", "Cambio"], _dec[0], _dec[1],
-                  f"{int(num)}. Recomendaciones", col_widths=[4.9, 1.3, 1.3, 1.2])
-    if 'recomendaciones' in sec and (_recs or _anom):
-        num = sec_nums.get("Análisis y Recomendaciones", "06")
-        add_recommendations(prs, _recs, _anom, f"{int(num)}. Recomendaciones")
+    if show_recs:
+        lbl = f"{int(sec_nums['Análisis y Recomendaciones'])}. Recomendaciones"
+        if _dec:
+            add_table(prs, "qué conviene actualizar", "PÁGINAS QUE PIERDEN VISITAS",
+                      ["Página", "Clics antes", "Clics ahora", "Cambio"], _dec[0], _dec[1],
+                      lbl, col_widths=[4.9, 1.3, 1.3, 1.2])
+        if _recs or _anom:
+            add_recommendations(prs, _recs, _anom, lbl)
 
     if 'conclusiones' in sec:
-        num = sec_nums.get("Conclusiones y Próximos Pasos", "05")
+        num = sec_nums["Conclusiones y Próximos Pasos"]
         add_text(prs, "hacia dónde vamos", "CONCLUSIONES",
                  analysis['conclusions'], f"{int(num)}. Conclusiones")
 

@@ -818,6 +818,38 @@ def add_double_image_slide(prs, title: str, img_left: str, label_left: str,
         slide.shapes.add_picture(img, Inches(x), Inches(1.8), width=Inches(4.4))
 
 
+
+# ── Señales SEO para el cliente (tráfico desde IA y páginas a actualizar) ──
+def _ai_slide_data(analysis):
+    ai = (analysis.get('seo_insights') or {}).get('ai') or {}
+    if not ai.get('sessions'):
+        return None
+    prev = ai.get('prev_sessions')
+    trend = ""
+    if prev:
+        trend = f" ({'+' if ai['sessions'] >= prev else ''}{round((ai['sessions'] - prev) / prev * 100)}% frente al mes anterior)"
+    narrative = (f"{ai['sessions']:,} visitas llegaron este mes desde asistentes de IA{trend}. "
+                 "Significa que estos asistentes enlazan la web en sus respuestas: un canal nuevo que conviene seguir.").replace(",", ".")
+    rows = [[a['assistant'], f"{a['sessions']:,}".replace(",", ".")] for a in ai['sources'][:6]]
+    return rows, narrative
+
+
+def _decay_slide_data(analysis):
+    dec = (analysis.get('seo_insights') or {}).get('decay') or {}
+    pages = dec.get('pages', [])[:6]
+    if not pages:
+        return None
+    from urllib.parse import urlparse
+    def short(u):
+        p = urlparse(u).path or "/"
+        return p if len(p) <= 52 else p[:50] + "…"
+    rows = [[short(p['page']), f"{p['clicks_before']:,}".replace(",", "."), f"{p['clicks_now']:,}".replace(",", "."),
+             f"{p['pct']}%"] for p in pages]
+    narrative = (f"Páginas que han perdido clics desde Google ({dec.get('window', 'últimos 3 meses')}). "
+                 "Actualizar su contenido suele dar resultados antes que crear páginas nuevas.")
+    return rows, narrative
+
+
 def add_table_slide(prs, title: str, headers: list, rows: list, narrative: str = "",
                     section: str = "", section_num: str = "", col_widths: list = None):
     """Tabla premium: cabecera navy, filas alternas, sin bordes pesados"""
@@ -1423,6 +1455,11 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
             add_devices_slide(prs, "Distribución por Dispositivos",
                               dev_dict, devices_d['narrative'], s_label, s_num)
 
+        _ai = _ai_slide_data(analysis)
+        if _ai:
+            add_table_slide(prs, "Visitas desde Asistentes de IA", ["Asistente", "Visitas"], _ai[0], _ai[1],
+                            s_label, s_num, col_widths=[6.5, 2.2])
+
     # RENDIMIENTO EN GOOGLE
     if 'search' in sec:
         s_num = sec_nums.get("Rendimiento en Google", "03")
@@ -1526,6 +1563,11 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
     # ANÁLISIS Y RECOMENDACIONES
     _recs = analysis.get('recommendations', [])
     _anom = analysis.get('anomalies', [])
+    _dec = _decay_slide_data(analysis) if 'recomendaciones' in sec else None
+    if _dec:
+        s_num = sec_nums.get("Análisis y Recomendaciones", "06")
+        add_table_slide(prs, "Páginas que Pierden Visitas", ["Página", "Clics antes", "Clics ahora", "Cambio"],
+                        _dec[0], _dec[1], f"{int(s_num)}. Recomendaciones", s_num, col_widths=[4.9, 1.3, 1.3, 1.2])
     if 'recomendaciones' in sec and (_recs or _anom):
         s_num = sec_nums.get("Análisis y Recomendaciones", "06")
         add_recommendations_slide(prs, _recs, _anom, f"{int(s_num)}. Recomendaciones", s_num)

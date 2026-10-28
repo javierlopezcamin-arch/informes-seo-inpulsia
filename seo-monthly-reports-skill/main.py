@@ -32,6 +32,7 @@ from extract_search_console import extract_search_console_data
 from extract_pagespeed import extract_pagespeed
 from extract_google_ads import extract_google_ads_data, customer_id_for, credentials_configured, friendly_error, ads_enabled_for
 from analyze import analyze_seo_data
+from seo_insights import build_insights
 from generate_pptx import generate_pptx, convert_to_pdf
 from generate_pptx_v2 import generate_pptx_v2
 from generate_propuestas import generate_propuestas
@@ -288,10 +289,16 @@ def main():
         print(f"  ⚠️  PageSpeed: {e}")
         ps_data = {}
 
+    # ── 2f. Señales cruzadas: contenido que pierde clics, URL SC×GA4, tráfico desde IA ──
+    print(f"\n🔎 Señales SEO (contenido, páginas, IA)...")
+    insights = build_insights(ga4_id, sc_url, month, year)
+    print(f"  ✅ {len((insights.get('decay') or {}).get('pages', []))} páginas pierden clics · "
+          f"{(insights.get('ai') or {}).get('sessions', 0)} visitas desde IA")
+
     # ── 3. Analizar ─────────────────────────────────────────
     print(f"\n🔬 Analizando datos...")
     analysis = analyze_seo_data(ga4_data, sc_data, ga4_prev, sc_prev, historical, args.notes_level,
-                                ads_data=ads_data, ads_prev=ads_prev)
+                                ads_data=ads_data, ads_prev=ads_prev, insights=insights)
     if ps_data:
         analysis['pagespeed'] = ps_data
     print("  ✅ Análisis completado")
@@ -316,7 +323,7 @@ def main():
     if marked and not args.no_propuestas:
         print(f"\n📝 Generando archivo de propuestas (interno)...")
         try:
-            prop_path = generate_propuestas(client, month, year, real_ga4, real_sc, ads_data, ads_error)
+            prop_path = generate_propuestas(client, month, year, real_ga4, real_sc, ads_data, ads_error, insights)
             print(f"  ✅ Guardado: {prop_path}")
         except Exception as e:
             print(f"  ⚠️  Propuestas: {type(e).__name__}: {e} — el informe se mantiene")

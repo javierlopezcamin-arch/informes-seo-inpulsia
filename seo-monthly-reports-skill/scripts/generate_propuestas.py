@@ -311,9 +311,42 @@ def _conversion_section(ads: dict, tracking: dict, paid: list, sig: dict) -> str
     return "\n".join(lines) + "\n"
 
 
+def _insights_section(ins: dict) -> list:
+    """Sección 3b: contenido que pierde clics, cruce Search Console × GA4 por URL y tráfico desde IA."""
+    dec, land, ai = ins.get("decay") or {}, ins.get("landings") or {}, ins.get("ai") or {}
+    if not (dec.get("pages") or land.get("visible_no_conv") or land.get("conv_low_vis") or ai.get("sessions")
+            or ("measured" in land and not land["measured"])):
+        return []
+    out = ["## 3b. Contenido, páginas y tráfico desde IA", ""]
+    if dec.get("pages"):
+        out.append(f"**Páginas que pierden clics** ({dec['window']}). Candidatas a actualizar antes de crear contenido nuevo:")
+        out.append(_table(["Página", "Clics antes", "Clics ahora", "Cambio", "Posición antes → ahora"],
+                          [[p["page"], _n(p["clicks_before"]), _n(p["clicks_now"]), f"{p['pct']}%",
+                            f"{p['pos_before']} → {p['pos_now'] or 'ya no aparece'}"] for p in dec["pages"]]))
+    if land.get("visible_no_conv"):
+        out.append("**Llegan desde Google pero no convierten** (revisar CTA, formulario y contenido):")
+        out.append(_table(["Página", "Clics SC", "Sesiones orgánicas", "Eventos clave"],
+                          [[r["page"], _n(r["clicks"]), _n(r["sessions"]), "0"] for r in land["visible_no_conv"]]))
+    if land.get("conv_low_vis"):
+        out.append("**Convierten pero apenas se ven en Google** (posición > 10: reforzar SEO y enlazado interno):")
+        out.append(_table(["Página", "Eventos clave", "Posición", "Impresiones"],
+                          [[r["page"], f"{r['key_events']:g}", r["position"], _n(r["impressions"])] for r in land["conv_low_vis"]]))
+    if "measured" in land and not land["measured"]:
+        out += ["*GA4 no registra eventos clave en el tráfico orgánico: no se puede saber qué páginas convierten. "
+                "Configurar eventos clave (formulario, llamada, WhatsApp) en GA4.*", ""]
+    if ai.get("sessions"):
+        prev = ai.get("prev_sessions")
+        out.append(f"**Visitas desde asistentes de IA:** {_n(ai['sessions'])} sesiones"
+                   + (f" (mes anterior: {_n(prev)})" if prev is not None else "") + ". "
+                   + ", ".join(f"{a['assistant']} {_n(a['sessions'])}" for a in ai["sources"]) + ".")
+        out.append("")
+    return out
+
+
 def build_markdown(client: str, month: int, year: int, base: str, customer_id: str, mcp: str,
                    ga4: dict, sc: dict, ads: dict, ads_error: str, scq: dict, paid: list,
-                   wp: dict, tracking: dict, trends: dict, posts: list, sig: dict, kw_rows: list) -> str:
+                   wp: dict, tracking: dict, trends: dict, posts: list, sig: dict, kw_rows: list,
+                   insights: dict = None) -> str:
     cur = ads.get("currency", "€")
     state = ads.get("conversion_state", "")
     mes = f"{MESES.get(month, month).capitalize()} {year}"
@@ -385,6 +418,8 @@ def build_markdown(client: str, month: int, year: int, base: str, customer_id: s
                 for c in sig["cannibal"]]
         out.append("")
 
+    out += _insights_section(insights or {})
+
     # 4. Ads
     out.append("## 4. Google Ads: datos del mes")
     if ads and ads.get("impressions"):
@@ -422,6 +457,14 @@ def build_markdown(client: str, month: int, year: int, base: str, customer_id: s
 
     # 6. Tareas
     tasks = []
+    ins = insights or {}
+    for p in (ins.get("decay") or {}).get("pages", [])[:3]:
+        if not p["pos_now"]:
+            tasks.append(f"Comprobar si {p['page']} sigue activa o se redirigió: ya no aparece en Google ({p['clicks_before']} clics antes, sección 3b)")
+        else:
+            tasks.append(f"Actualizar {p['page']}: ha perdido {p['lost']} clics ({p['pct']}%) en 3 meses (sección 3b, MCP Elementor)")
+    for r in (ins.get("landings") or {}).get("visible_no_conv", [])[:2]:
+        tasks.append(f"Añadir llamada a la acción en {r['page']}: {r['clicks']} clics de Google y 0 conversiones (sección 3b)")
     if ads and state and state != "ok":
         tasks.append("Configurar la medición de conversiones siguiendo la sección 5, antes de optimizar por CPA")
     for u in ads.get("final_urls", [])[:1]:
@@ -459,7 +502,7 @@ def build_markdown(client: str, month: int, year: int, base: str, customer_id: s
 
 # ── Orquestación ──────────────────────────────────────────────
 def generate_propuestas(client: str, month: int, year: int, ga4_data: dict, sc_data: dict,
-                        ads_data: dict, ads_error: str = "") -> str | None:
+                        ads_data: dict, ads_error: str = "", insights: dict = None) -> str | None:
     """Genera el .md en OUTPUT_DIR/internos/ y devuelve la ruta. Cada fuente extra es opcional."""
     from extract_wp_content import extract_wp_content, site_base
     from check_tracking import check_tracking
@@ -496,7 +539,7 @@ def generate_propuestas(client: str, month: int, year: int, ga4_data: dict, sc_d
     kw_rows = keyword_table(sig)
     posts = _ai_posts(client, base, month, year, sig, kw_rows, wp)
     md = build_markdown(client, month, year, base, customer_id_for(client), os.getenv(f"WP_MCP_{cu}", "").strip(),
-                        ga4_data, sc_data, ads, ads_error, scq, paid, wp, tracking, trends, posts, sig, kw_rows)
+                        ga4_data, sc_data, ads, ads_error, scq, paid, wp, tracking, trends, posts, sig, kw_rows, insights)
 
     out_dir = os.path.join(get_output_dir(), "internos")
     os.makedirs(out_dir, exist_ok=True)

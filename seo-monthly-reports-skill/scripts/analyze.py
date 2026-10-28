@@ -16,8 +16,9 @@ class SEOAnalyzer:
 
     def __init__(self, ga4_data: Dict, sc_data: Dict,
                  ga4_prev: Dict = None, sc_prev: Dict = None,
-                 ads_data: Dict = None, ads_prev: Dict = None):
+                 ads_data: Dict = None, ads_prev: Dict = None, insights: Dict = None):
         self.ga4 = ga4_data
+        self.insights = insights or {}
         self.sc = sc_data
         self.ga4_prev = ga4_prev or {}
         self.sc_prev = sc_prev or {}
@@ -570,6 +571,7 @@ class SEOAnalyzer:
             f"Usuarios: {t['users']} ({t.get('d_users', '—')}), Sesiones: {t['sessions']} ({t.get('d_sessions', '—')}), Rebote: {t['bounce_rate']:.1f}%\n"
             f"Impresiones: {sc['impressions']} ({sc.get('d_impressions', '—')}), Clics: {sc['clicks']} ({sc.get('d_clicks', '—')}), CTR: {sc['ctr']:.2f}%, Posición: {sc['position']:.1f}\n"
             f"Top keywords: {top_kw}\nSuben: {gained}\nBajan: {lost}\nOportunidades pág.2: {opp_list}"
+            f"{self._insights_prompt()}"
         )
         print(f"  🤖 IA: análisis (nivel {level}, 1 llamada)")
         data = self._bundle_gemini(prompt) or self._bundle_claude(prompt)
@@ -578,6 +580,18 @@ class SEOAnalyzer:
         else:
             print("  ⚠️  IA: sin respuesta; se usará texto genérico")
         return data
+
+    def _insights_prompt(self) -> str:
+        """Líneas extra para la IA con las señales cruzadas (contenido que cae y tráfico desde IA)."""
+        lines = []
+        dec = (self.insights.get('decay') or {}).get('pages', [])
+        if dec:
+            lines.append("Páginas que pierden clics (3 meses vs 3 anteriores): " + ", ".join(
+                f"{p['page'].split('://')[-1][-60:]} ({p['pct']}%)" for p in dec[:4]))
+        ai = self.insights.get('ai') or {}
+        if ai.get('sessions'):
+            lines.append(f"Visitas desde asistentes de IA: {ai['sessions']} (mes anterior: {ai.get('prev_sessions', '—')})")
+        return ("\n" + "\n".join(lines)) if lines else ""
 
     # ── Análisis completo ────────────────────────────────────
     def get_full_analysis(self, historical: list = None, notes_level: str = "analitico") -> Dict:
@@ -606,6 +620,7 @@ class SEOAnalyzer:
             'anomalies': bundle.get('anomalies', []) or [],
             'historical': historical or [],
             'ads': self.analyze_ads(),
+            'seo_insights': self.insights,
             'conclusions': bundle.get('conclusions') or self._fallback_conclusions(),
         }
 
@@ -613,5 +628,6 @@ class SEOAnalyzer:
 def analyze_seo_data(ga4_data: Dict, sc_data: Dict,
                      ga4_prev: Dict = None, sc_prev: Dict = None,
                      historical: list = None, notes_level: str = "analitico",
-                     ads_data: Dict = None, ads_prev: Dict = None) -> Dict:
-    return SEOAnalyzer(ga4_data, sc_data, ga4_prev, sc_prev, ads_data, ads_prev).get_full_analysis(historical, notes_level)
+                     ads_data: Dict = None, ads_prev: Dict = None, insights: Dict = None) -> Dict:
+    return SEOAnalyzer(ga4_data, sc_data, ga4_prev, sc_prev, ads_data, ads_prev,
+                       insights).get_full_analysis(historical, notes_level)

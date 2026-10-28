@@ -212,6 +212,31 @@ def pick_folder():
         return None
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def credentials_status(ads_cid):
+    """Estado de lo que necesita una tanda, para verlo antes de lanzarla.
+    Se cachea 10 min: Drive y Ads hacen una llamada de red. Devuelve [(etiqueta, estado, detalle)]."""
+    import shutil
+    ac.load_env()
+    out = []
+    sa = ac._creds_path()
+    out.append(("Google", "ok" if sa and os.path.exists(sa) else "bad",
+                "" if sa and os.path.exists(sa) else "No se encuentra la clave de la cuenta de servicio (GA4 y Search Console)"))
+    try:
+        from upload_drive import is_connected
+        drive_ok = is_connected()
+    except Exception as e:
+        drive_ok = False
+    out.append(("Drive", "ok" if drive_ok else "unk", "" if drive_ok else "Drive sin conectar o token caducado: reconéctalo en ⚙ Config"))
+    if ads_cid:
+        import extract_google_ads as eg
+        r = eg.check_access(ads_cid)
+        out.append(("Google Ads", "ok" if r["ok"] else "bad", "" if r["ok"] else r.get("error", "error")))
+    pdf_ok = bool(shutil.which("soffice"))
+    out.append(("PDF", "ok" if pdf_ok else "bad", "" if pdf_ok else "Falta LibreOffice: los informes saldrán sin PDF (brew install --cask libreoffice)"))
+    return out
+
+
 def gemini_usage_today():
     return gemini_usage(), GEMINI_DAILY_LIMIT
 
@@ -413,6 +438,17 @@ st.markdown(f'''<div class="toprow"><p class="toprow-title">Informes SEO · <spa
 <div class="stat"><span class="stat-n {_ia_cls}">{_ia_left}<small style="font-size:12px;color:var(--muted)">/{_ia_limit}</small></span><span class="stat-l">Gemini hoy</span></div>
 </div></div>''', unsafe_allow_html=True)
 
+# Estado de credenciales: se prueba Ads con el primer cliente marcado (o con Customer ID)
+_ads_ids = [get_ads_id(c) for c in sorted(clients, key=lambda c: not get_ads_flag(c))]
+_cred = credentials_status(next((x for x in _ads_ids if x), ""))
+st.markdown('<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:-6px 0 10px;">'
+            '<span style="font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-right:4px;">Estado</span>'
+            + "".join(f'<span class="pill {st_}" title="{html.escape(d)}">{"✓" if st_ == "ok" else "!"} {lbl}</span>' for lbl, st_, d in _cred)
+            + '</div>', unsafe_allow_html=True)
+for _lbl, _st, _d in _cred:
+    if _st == "bad":
+        st.caption(f"⚠️ {_lbl}: {_d}")
+
 _s, _cfg_col = st.columns([5, 1])
 with _cfg_col:
     if st.button("⚙ Config", use_container_width=True, key="toggle_config"):
@@ -495,6 +531,7 @@ if st.session_state.get("show_config"):
             if st.button("Reconectar Drive", key="cfg_drive_reconnect"):
                 with st.spinner("Abriendo navegador para autorizar…"):
                     ok = _drive_authorize()
+                credentials_status.clear()
                 st.success("Drive reconectado.") if ok else st.error("No se pudo autorizar.")
                 st.rerun()
         else:
@@ -502,6 +539,7 @@ if st.session_state.get("show_config"):
             if st.button("Conectar Drive", type="primary", key="cfg_drive_connect"):
                 with st.spinner("Abriendo navegador para autorizar…"):
                     ok = _drive_authorize()
+                credentials_status.clear()
                 st.success("Drive conectado.") if ok else st.error("Falta credenciales/credentials.json o se canceló.")
                 st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
@@ -771,10 +809,11 @@ with tab2:
     with tb1:
         q = st.text_input("Buscar", placeholder="Buscar cliente…", key="cli_q", label_visibility="collapsed")
     with tb2:
-        flt = st.selectbox("Estado", ["Todos", "Con error", "Sin verificar", "Con acceso"], key="cli_f", label_visibility="collapsed")
+        flt = st.selectbox("Estado", ["Todos", "Con error", "Sin verificar", "Con acceso", "Con Ads marcado", "Con Customer ID", "Sin Customer ID", "Error en Ads"], key="cli_f", label_visibility="collapsed")
     with tb3:
         verify_all = st.button("Verificar todos", type="primary", use_container_width=True, key="verify_all", disabled=not clients)
     if verify_all:
+        credentials_status.clear()
         prog = st.progress(0.0, text="Verificando accesos…")
         res = ac.check_and_store(clients, lambda i, n, c: prog.progress(i / n, text=f"Verificando {c} ({i}/{n})"))
         bad = [c for c in clients if ac.state_of(res[c]) == "error"]
@@ -823,9 +862,16 @@ with tab2:
         st.caption("No hay clientes todavía.")
     else:
         _states_by = {"Con error": "error", "Sin verificar": "unknown", "Con acceso": "ok"}
-        shown = [c for c in clients
-                 if (not q.strip() or _norm(q) in _norm(c))
-                 and (flt == "Todos" or ac.state_of(status_all.get(c)) == _states_by[flt])]
+
+        def _match(c):
+            if flt == "Todos": return True
+            if flt in _states_by: return ac.state_of(status_all.get(c)) == _states_by[flt]
+            if flt == "Con Ads marcado": return get_ads_flag(c)
+            if flt == "Con Customer ID": return bool(get_ads_id(c))
+            if flt == "Sin Customer ID": return not get_ads_id(c)
+            if flt == "Error en Ads": return bool(ac.ads_error_text(status_all.get(c)))
+            return True
+        shown = [c for c in clients if (not q.strip() or _norm(q) in _norm(c)) and _match(c)]
         st.caption(f"Mostrando {len(shown)} de {len(clients)}")
         for c in shown:
             entry = status_all.get(c)

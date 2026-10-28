@@ -192,6 +192,14 @@ html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;colo
 [data-testid="stProgress"] div[role="progressbar"]>div{background:var(--orange)!important;}
 [data-testid="stProgress"] div[role="progressbar"]{background:var(--bg3)!important;}
 
+/* Formulario en 3 pasos: cada paso es una tarjeta (st.container con key) */
+.st-key-paso1,.st-key-paso2,.st-key-paso3{background:var(--bg2);border:1px solid var(--line);border-radius:18px;padding:20px 24px 22px;margin-bottom:4px;box-shadow:var(--shadow);}
+.st-key-paso1 .card-t,.st-key-paso2 .card-t,.st-key-paso3 .card-t{margin:0 0 4px;color:var(--text);}
+[data-testid="stMultiSelect"] label[data-testid="stWidgetLabel"] p{color:var(--muted)!important;font-size:11px!important;font-weight:600!important;text-transform:uppercase!important;letter-spacing:1px!important;}
+.summary{font-size:13px;color:var(--muted);text-align:center;padding:10px 14px;margin:6px 0 2px;border:1px dashed var(--line2);border-radius:12px;}
+.summary b{color:var(--text);font-weight:600;}
+.summary .warn{color:#FF9A76;font-weight:600;}
+
 /* Result banner */
 .result{background:linear-gradient(135deg,rgba(0,229,160,.1),rgba(0,229,160,.02));border:1px solid rgba(0,229,160,.28);border-radius:18px;padding:22px 26px;margin:22px 0 6px;display:flex;align-items:center;gap:14px;box-shadow:var(--shadow);}
 .result::before{content:"";flex:none;width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 14px var(--green);}
@@ -655,40 +663,60 @@ with tab1:
     if not clients:
         st.warning("No hay clientes configurados.")
     else:
-        # ── selector de clientes (tanda) ──
+        # ── 1 · Clientes (tanda) ──
         if "sel_clients" not in st.session_state:
             st.session_state["sel_clients"] = clients[:1]
         else:  # descarta clientes borrados/renombrados desde la última selección
             st.session_state["sel_clients"] = [c for c in st.session_state["sel_clients"] if c in clients]
-        _sa1, _sa2, _sa4, _sa3 = st.columns(4)
-        with _sa1:
-            if st.button("Seleccionar todos", use_container_width=True, key="sel_all"):
-                st.session_state["sel_clients"] = clients
-        with _sa2:
-            if st.button("Solo con acceso OK", use_container_width=True, key="sel_ok"):
-                st.session_state["sel_clients"] = [c for c in clients if ac.state_of(status_all.get(c)) == "ok"]
-        with _sa4:
-            if st.button("Solo con Ads", use_container_width=True, key="sel_ads"):
-                st.session_state["sel_clients"] = [c for c in clients if get_ads_flag(c)]
-        with _sa3:
-            if st.button("Ninguno", use_container_width=True, key="sel_none"):
-                st.session_state["sel_clients"] = []
-        sel_clients = st.multiselect("Clientes", clients, key="sel_clients",
-                                     format_func=lambda c: f"{status_icon(c)} {c}", label_visibility="collapsed")
-        if n_bad or n_unk:
-            st.caption(f"❌ {n_bad} con error de acceso · ⚪ {n_unk} sin verificar — usa «Verificar todos» en la pestaña Clientes.")
+        with st.container(key="paso1"):
+            st.markdown('<p class="card-t">1 · Clientes</p>', unsafe_allow_html=True)
+            _sa1, _sa2, _sa4, _sa3 = st.columns(4)
+            with _sa1:
+                if st.button("Seleccionar todos", use_container_width=True, key="sel_all"):
+                    st.session_state["sel_clients"] = clients
+            with _sa2:
+                if st.button("Solo con acceso OK", use_container_width=True, key="sel_ok"):
+                    st.session_state["sel_clients"] = [c for c in clients if ac.state_of(status_all.get(c)) == "ok"]
+            with _sa4:
+                if st.button("Solo con Ads", use_container_width=True, key="sel_ads"):
+                    st.session_state["sel_clients"] = [c for c in clients if get_ads_flag(c)]
+            with _sa3:
+                if st.button("Ninguno", use_container_width=True, key="sel_none"):
+                    st.session_state["sel_clients"] = []
+            sel_clients = st.multiselect("Clientes", clients, key="sel_clients",
+                                         format_func=lambda c: f"{status_icon(c)} {c}", label_visibility="collapsed")
+            if n_bad or n_unk:
+                st.caption(f"❌ {n_bad} con error de acceso · ⚪ {n_unk} sin verificar — usa «Verificar todos» en la pestaña Clientes.")
+            _marked = [c for c in sel_clients if get_ads_flag(c) and get_ads_id(c)]
+            if _marked:
+                st.caption(f"📣 Google Ads + archivo de propuestas en {len(_marked)} de {len(sel_clients)} cliente(s) "
+                           f"({', '.join(_marked[:5])}{'…' if len(_marked) > 5 else ''}) · +{len(_marked)} llamada(s) de Gemini, sin respaldo de pago")
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            month = st.selectbox("Mes", list(MESES.keys()), index=prev_month-1, format_func=lambda m:MESES[m])
-        with col2:
-            years = list(range(now.year,now.year-4,-1))
-            year  = st.selectbox("Año", years, index=years.index(prev_year))
-        with col3:
-            design_opt = st.selectbox("Diseño", ["Inpulsia 2", "Inpulsia 1"], key="design")
-            design_val = {"Inpulsia 1": "inpulsia1", "Inpulsia 2": "inpulsia2"}[design_opt]
-        col_boost, col_sec = st.columns([35, 65])
-        with col_boost:
+        # ── 2 · Periodo y diseño ──
+        with st.container(key="paso2"):
+            st.markdown('<p class="card-t">2 · Periodo y diseño</p>', unsafe_allow_html=True)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                month = st.selectbox("Mes", list(MESES.keys()), index=prev_month-1, format_func=lambda m:MESES[m])
+            with col2:
+                years = list(range(now.year,now.year-4,-1))
+                year  = st.selectbox("Año", years, index=years.index(prev_year))
+            with col3:
+                design_opt = st.selectbox("Diseño", ["Inpulsia 2", "Inpulsia 1"], key="design")
+                design_val = {"Inpulsia 1": "inpulsia1", "Inpulsia 2": "inpulsia2"}[design_opt]
+
+        # ── 3 · Opciones ──
+        with st.container(key="paso3"):
+            st.markdown('<p class="card-t">3 · Opciones</p>', unsafe_allow_html=True)
+            sections_sel = st.multiselect("Secciones", ALL_SECTIONS, format_func=lambda s:SECTION_LABELS[s], key="sections")
+            _nc1, _nc2, _nc3 = st.columns([1, 1, 1], vertical_alignment="center")
+            with _nc1:
+                include_notes = st.checkbox("Incluir notas IA", key="include_notes")
+            with _nc2:
+                notes_level_opt = st.selectbox("Nivel de notas", ["Analítico", "Positivo"], key="notes_level", label_visibility="collapsed")
+                notes_level = {"Analítico": "analitico", "Positivo": "positivo"}[notes_level_opt]
+            with _nc3:
+                upload_drive = st.checkbox("Subir a Google Drive", key="upload_drive")
             boost_opt = st.segmented_control("Ajuste de datos", list(BOOSTS), default="Datos reales",
                                              required=True, key="boost")
             boost_val = BOOSTS[boost_opt]
@@ -698,20 +726,6 @@ with tab1:
                             'border-color:#FF7043!important;}.st-key-boost button[kind$="Active"] p{color:#FF9A76!important;}</style>',
                             unsafe_allow_html=True)
                 st.caption(f"Cifras del informe × {boost_val.replace('.', ',')} · el archivo de propuestas usa los datos reales")
-        with col_sec:
-            st.markdown('<p style="font-size:0.85rem;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Opciones del informe</p>', unsafe_allow_html=True)
-            sections_sel = st.multiselect("Secciones", ALL_SECTIONS, format_func=lambda s:SECTION_LABELS[s], key="sections", label_visibility="collapsed")
-            _nc1, _nc2 = st.columns([1, 1])
-            with _nc1:
-                include_notes = st.checkbox("Incluir notas IA", key="include_notes")
-            with _nc2:
-                notes_level_opt = st.selectbox("Nivel de notas", ["Analítico", "Positivo"], key="notes_level", label_visibility="collapsed")
-                notes_level = {"Analítico": "analitico", "Positivo": "positivo"}[notes_level_opt]
-        upload_drive = st.checkbox("Subir a Google Drive", key="upload_drive")
-        _marked = [c for c in sel_clients if get_ads_flag(c) and get_ads_id(c)]
-        if _marked:
-            st.caption(f"📣 Google Ads + archivo de propuestas en {len(_marked)} de {len(sel_clients)} cliente(s) "
-                       f"({', '.join(_marked[:5])}{'…' if len(_marked) > 5 else ''}) · +{len(_marked)} llamada(s) de Gemini, sin respaldo de pago")
 
         # ── cuota de IA: estimación y reparto ──
         _n_sel = len(sel_clients)
@@ -728,15 +742,24 @@ with tab1:
                 if st.checkbox("Generar sin IA los que superen la cuota", value=True, key="skip_ai_over_quota"):
                     ai_budget = _ia_left
         if _n_sel:
+            # Resumen de la tanda en una línea, justo encima del botón
+            _calls = _n_sel + len(_marked)
             if not ia_active:
-                _ia_txt = "IA desactivada"
+                _ia_txt = "sin IA"
             elif _claude_backup and _over:
                 _ia_txt = f"IA: {min(_n_sel, _ia_left)} con Gemini + {_over} con Claude"
             elif ai_budget is not None:
-                _ia_txt = f"IA en {min(_n_sel, _ia_left)} de {_n_sel} (quedan {_ia_left} llamadas hoy)"
+                _ia_txt = f"IA en {min(_n_sel, _ia_left)} de {_n_sel} (quedan {_ia_left})"
             else:
-                _ia_txt = f"IA en {_n_sel} (quedan {_ia_left} llamadas hoy)"
-            st.caption(f"{_n_sel} informe(s) · {MESES[month]} {year} · {design_opt} · {_ia_txt}")
+                _ia_txt = f"{_calls} llamada{'s' if _calls != 1 else ''} de IA (quedan {_ia_left})"
+            _parts = [f"{_n_sel} informe{'s' if _n_sel != 1 else ''}", f"<b>{MESES[month]} {year}</b>", design_opt, _ia_txt]
+            if _marked:
+                _parts.append(f"{len(_marked)} con Ads")
+            if boost_val != "1.0":
+                _parts.append(f'<span class="warn">ajuste {boost_opt}</span>')
+            if upload_drive:
+                _parts.append("a Drive")
+            st.markdown(f'<div class="summary">{" · ".join(_parts)}</div>', unsafe_allow_html=True)
 
         _cur_prefs = {k: st.session_state.get(k, v) for k, v in PREF_DEFAULTS.items()}
         if _cur_prefs != _prefs:

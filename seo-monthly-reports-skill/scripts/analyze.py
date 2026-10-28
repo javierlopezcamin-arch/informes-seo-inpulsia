@@ -358,7 +358,9 @@ class SEOAnalyzer:
         if not metrics:
             return {'metrics': [], 'narrative': ''}
 
-        narrative = "Comparativa de las principales métricas respecto al mes anterior."
+        pm = 12 if self.month == 1 else self.month - 1
+        narrative = (f"Cuánto cambia cada métrica respecto a {MESES.get(pm, 'el mes anterior')}: "
+                     "en verde lo que sube y en rojo lo que baja.")
         return {'metrics': metrics, 'narrative': narrative}
 
     # ── Keywords ganadas / perdidas (#5) ────────────────────

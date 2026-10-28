@@ -151,27 +151,38 @@ def hbar(items: list, label_key: str, value_key: str, color: str = G_BLUE) -> st
     return _save(fig)
 
 
-def mom_grouped_bars(metrics: list, month_curr: str, month_prev: str) -> str | None:
-    """Barras agrupadas MoM: actual (lima) vs anterior (gris)."""
+def mom_change_bars(metrics: list, month_prev: str) -> str | None:
+    """% de cambio frente al mes anterior por métrica (barras horizontales): verde si sube,
+    rojo si baja, con el valor actual y el del mes anterior a la derecha. Sustituye a las
+    barras absolutas, que mezclaban escalas (impresiones frente a clics) y no se leían."""
     if not HAS_MPL or not metrics:
         return None
-    labels = [m["label"] for m in metrics]
-    curr = [m["current"] for m in metrics]
-    prev = [m["previous"] for m in metrics]
+    rows = metrics[::-1]   # barh dibuja de abajo arriba: la primera métrica queda arriba
+    pct = [(m["current"] - m["previous"]) / m["previous"] * 100 if m["previous"] else None for m in rows]
+    vals = [p or 0 for p in pct]
+    lim = max([abs(v) for v in vals] + [10]) * 1.5   # hueco para la etiqueta del % al final de la barra
+    colors = [G_GREEN if v >= 0 else G_RED for v in vals]
 
-    x = range(len(labels))
-    w = 0.34
-    fig, ax = plt.subplots(figsize=(10.2, 4.0))
-    _base_ax(ax)
-    bars1 = ax.bar([i - w/2 for i in x], curr, w, color="#C6FF2A", label=month_curr, zorder=3)
-    bars2 = ax.bar([i + w/2 for i in x], prev, w, color="#9E9E9E", label=month_prev, zorder=3)
-    ax.bar_label(bars1, padding=3, fontsize=9, fontweight="bold", color="#202124", fmt=fmt_int)
-    ax.bar_label(bars2, padding=3, fontsize=9, color=G_GRAY, fmt=fmt_int)
-    ax.set_xticks(list(x))
-    ax.set_xticklabels(labels, fontsize=11)
-    ax.yaxis.set_visible(False)
-    ax.grid(False)
-    ax.legend(frameon=False, fontsize=10, loc="upper right")
+    fig, ax = plt.subplots(figsize=(10.2, 0.8 * len(rows) + 0.6))
+    ax.set_facecolor(BG)
+    for spine in ("top", "right", "left", "bottom"):
+        ax.spines[spine].set_visible(False)
+    bars = ax.barh(range(len(rows)), vals, color=colors, height=0.58, zorder=3)
+    ax.axvline(0, color="#BDC1C6", linewidth=1.2, zorder=4)
+    ax.set_xlim(-lim if min(vals) < 0 else -lim * 0.04, lim)
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([m["label"] for m in rows], fontsize=15, color="#202124")
+    ax.tick_params(axis="y", length=0, pad=12)
+    ax.xaxis.set_visible(False)
+
+    for i, (bar, p, m) in enumerate(zip(bars, pct, rows)):
+        w = bar.get_width()
+        ax.text(w + (lim * 0.025 if w >= 0 else -lim * 0.025), i,
+                fmt_pct(p, 0, sign=True) if p is not None else "nuevo",
+                va="center", ha="left" if w >= 0 else "right", fontsize=15, fontweight="bold",
+                color=colors[i] if p is not None else G_GRAY, zorder=5)
+        ax.text(1.02, i, f"{fmt_int(m['current'])}  frente a {fmt_int(m['previous'])} en {month_prev}",
+                transform=ax.get_yaxis_transform(), va="center", ha="left", fontsize=13, color=G_GRAY)
     return _save(fig)
 
 

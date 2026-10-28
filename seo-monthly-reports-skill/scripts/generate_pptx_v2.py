@@ -807,8 +807,7 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
         mom_metrics = mom.get('metrics', [])
         if gcharts and mom_metrics:
             pm = month - 1 if month > 1 else 12
-            img = gcharts.mom_grouped_bars(mom_metrics, MESES.get(month, "Actual").capitalize(),
-                                           MESES.get(pm, "Anterior").capitalize())
+            img = gcharts.mom_change_bars(mom_metrics, MESES.get(pm, "el mes anterior"))
             if img:
                 add_image(prs, "mes contra mes", "COMPARATIVA MENSUAL", img,
                           mom.get('narrative', ''), lbl)

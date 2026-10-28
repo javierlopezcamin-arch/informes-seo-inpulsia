@@ -17,7 +17,7 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.dml.color import RGBColor
 
-from utils import MESES, get_output_dir, fmt_int, fmt_dec, fmt_pct, fmt_text_num
+from utils import MESES, get_output_dir, fmt_int, fmt_dec, fmt_pct, fmt_text_num, display_name
 from generate_pptx import _get_logo, _get_client_logo, convert_to_pdf, _CACHE_DIR  # noqa: F401 (reexport)
 from generate_pptx import ROW_H, ROW_H_MIN, _rows_fit, _paginate_rows, _paginate_text
 from generate_pptx import _ai_slide_data, _decay_slide_data
@@ -202,7 +202,7 @@ def add_cover(prs, client_name, month, year, client_logo=None):
     _text(s, 0.56, 2.25, 5.7, 1.0, "SEO", size=55, color=NAVY,
           font=F_TITLE, caps=True, track=20)
     _round(s, 0.62, 3.5, 1.1, 0.085, LIME, radius=0.5)
-    _text(s, 0.62, 3.74, 5.5, 0.45, client_name.upper(), size=18, color=NAVY,
+    _text(s, 0.62, 3.74, 5.5, 0.45, display_name(client_name).upper(), size=18, color=NAVY,
           font=F_BODY_SB, caps=True, track=80)
     _text(s, 0.62, 4.18, 5.5, 0.4, f"{MESES_UPPER.get(month, 'MES')} · {year}",
           size=13, color=MUTE, font=F_BODY)

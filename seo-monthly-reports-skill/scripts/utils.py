@@ -40,6 +40,25 @@ def write_env(path: str, content: str) -> None:
     os.replace(tmp, path)
 
 
+_NAME_LOWER = {"de", "del", "la", "las", "el", "los", "y", "e", "en"}
+
+
+def display_name(key: str) -> str:
+    """Nombre legible de un cliente a partir de su clave interna (NOMBRE_CLIENTE del .env):
+    '10DECO' → '10DECO' · 'ANA_ISABEL_BONITO_PSICLOGA' → 'Ana Isabel Bonito Psicloga'.
+    Las palabras con cifras se dejan en mayúsculas; los artículos y preposiciones, en minúscula."""
+    words = [w for w in key.replace("-", "_").split("_") if w]
+    out = []
+    for i, w in enumerate(words):
+        if any(ch.isdigit() for ch in w):
+            out.append(w.upper())
+        elif i and w.lower() in _NAME_LOWER:
+            out.append(w.lower())
+        else:
+            out.append(w.capitalize())
+    return " ".join(out) or key
+
+
 def prev_month(month: int, year: int) -> tuple[int, int]:
     """Devuelve (mes, año) del mes anterior."""
     return (12, year - 1) if month == 1 else (month - 1, year)

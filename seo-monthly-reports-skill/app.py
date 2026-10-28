@@ -9,7 +9,7 @@ MAIN_PY  = os.path.join(BASE_DIR, "main.py")
 sys.path.insert(0, os.path.join(BASE_DIR, "scripts"))
 import json, html
 from concurrent.futures import ThreadPoolExecutor
-from utils import GEMINI_DAILY_LIMIT, gemini_usage, _CACHE_DIR, write_env
+from utils import GEMINI_DAILY_LIMIT, gemini_usage, _CACHE_DIR, write_env, display_name
 import access_check as ac
 
 PREFS_PATH = os.path.join(_CACHE_DIR, "ui_prefs.json")
@@ -208,7 +208,9 @@ html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;colo
 .result-s{font-size:13px;color:var(--muted);margin:0;}
 
 /* Client list rows */
-.cli{display:flex;align-items:center;justify-content:space-between;padding:12px 2px;border-bottom:1px solid var(--line);font-size:13px;}
+.cli{display:flex;align-items:center;justify-content:space-between;padding:6px 2px;border-bottom:1px solid var(--line);font-size:13px;}
+.cli-id{display:flex;flex-direction:column;line-height:1.25;}
+.cli-site{font-size:11px;color:var(--muted);}
 .cli:last-child{border-bottom:none;}
 .cli-n{font-weight:500;color:var(--text);}
 .tag{font-size:10px;font-weight:700;letter-spacing:.5px;background:rgba(0,229,160,.12);color:var(--green);border:1px solid rgba(0,229,160,.25);padding:3px 10px;border-radius:30px;}
@@ -221,6 +223,11 @@ html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;colo
 .cli-age{font-size:10px;color:var(--muted);margin-left:4px;}
 .cli-err{flex-basis:100%;font-size:11px;color:#FF8F8F;line-height:1.4;}
 .stat-n.bad{color:#FF8F8F;}.stat-n.mut{color:var(--muted);}
+/* Botones de cada fila de cliente: más bajos; borrar como icono gris que se enciende en coral */
+[class*="st-key-chk_"] [data-testid="stButton"] button,[class*="st-key-edit_"] [data-testid="stButton"] button{min-height:30px!important;padding:2px 10px!important;}
+[class*="st-key-chk_"] button p,[class*="st-key-edit_"] button p{font-size:12px!important;}
+[class*="st-key-del_"] [data-testid="stButton"] button[kind="tertiary"]{background:transparent!important;border:none!important;box-shadow:none!important;min-height:30px!important;padding:2px 6px!important;opacity:.45;filter:grayscale(1);transition:opacity .15s!important;}
+[class*="st-key-del_"] [data-testid="stButton"] button[kind="tertiary"]:hover{opacity:1;filter:none;transform:none!important;}
 [data-testid="stTextInput"] input::placeholder{color:var(--muted)!important;opacity:1!important;}
 [data-testid="stExpander"] summary{font-family:'Syne',sans-serif;font-weight:700;font-size:13px;}
 
@@ -277,6 +284,17 @@ def load_clients():
             m = re.match(r"\s*GA4_PROPERTY_ID_([A-Z0-9_]+)\s*=\s*(\S+)", line)
             if m and m.group(2): clients.append(m.group(1))
     return sorted(set(clients))
+
+def load_client_sites():
+    """{CLIENTE: web} a partir de SEARCH_CONSOLE_URL_<CLIENTE>, sin https://, sc-domain: ni barra final."""
+    sites = {}
+    if os.path.exists(ENV_PATH):
+        with open(ENV_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r"\s*SEARCH_CONSOLE_URL_([A-Z0-9_]+)\s*=\s*(\S+)", line)
+                if m:
+                    sites[m.group(1)] = re.sub(r"^(sc-domain:|https?://)(www\.)?", "", m.group(2)).rstrip("/")
+    return sites
 
 def get_output_dir():
     if os.path.exists(ENV_PATH):
@@ -684,13 +702,13 @@ with tab1:
                 if st.button("Ninguno", use_container_width=True, key="sel_none"):
                     st.session_state["sel_clients"] = []
             sel_clients = st.multiselect("Clientes", clients, key="sel_clients",
-                                         format_func=lambda c: f"{status_icon(c)} {c}", label_visibility="collapsed")
+                                         format_func=lambda c: f"{status_icon(c)} {display_name(c)}", label_visibility="collapsed")
             if n_bad or n_unk:
                 st.caption(f"❌ {n_bad} con error de acceso · ⚪ {n_unk} sin verificar — usa «Verificar todos» en la pestaña Clientes.")
             _marked = [c for c in sel_clients if get_ads_flag(c) and get_ads_id(c)]
             if _marked:
                 st.caption(f"📣 Google Ads + archivo de propuestas en {len(_marked)} de {len(sel_clients)} cliente(s) "
-                           f"({', '.join(_marked[:5])}{'…' if len(_marked) > 5 else ''}) · +{len(_marked)} llamada(s) de Gemini, sin respaldo de pago")
+                           f"({', '.join(display_name(c) for c in _marked[:5])}{'…' if len(_marked) > 5 else ''}) · +{len(_marked)} llamada(s) de Gemini, sin respaldo de pago")
 
         # ── 2 · Periodo y diseño ──
         with st.container(key="paso2"):
@@ -924,7 +942,8 @@ with tab2:
             if flt == "Sin Customer ID": return not get_ads_id(c)
             if flt == "Error en Ads": return bool(ac.ads_error_text(status_all.get(c)))
             return True
-        shown = [c for c in clients if (not q.strip() or _norm(q) in _norm(c)) and _match(c)]
+        _sites = load_client_sites()
+        shown = [c for c in clients if (not q.strip() or _norm(q) in _norm(c + _sites.get(c, ""))) and _match(c)]
         st.caption(f"Mostrando {len(shown)} de {len(clients)}")
         for c in shown:
             entry = status_all.get(c)
@@ -937,9 +956,11 @@ with tab2:
                 pills = '<span class="pill unk">Sin verificar</span>'
             err = "".join(f'<div class="cli-err">{html.escape(t)}</div>'
                           for t in (ac.error_text(entry) if ac.state_of(entry) == "error" else "", ac.ads_error_text(entry)) if t)
-            rc1, rc2, rc3, rc4 = st.columns([6, 1, 1, 1], vertical_alignment="center")
+            rc1, rc2, rc3, rc4 = st.columns([7, 1.1, 1, 0.45], vertical_alignment="center")
             with rc1:
-                st.markdown(f'<div class="cli"><span class="cli-n">{c}</span><span class="cli-meta">{pills}</span>{err}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="cli"><div class="cli-id"><span class="cli-n">{html.escape(display_name(c))}</span>'
+                            f'<span class="cli-site">{html.escape(_sites.get(c, ""))}</span></div>'
+                            f'<span class="cli-meta">{pills}</span>{err}</div>', unsafe_allow_html=True)
             with rc2:
                 if st.button("Verificar", key=f"chk_{c}", use_container_width=True):
                     with st.spinner(f"Verificando {c}…"):
@@ -950,7 +971,7 @@ with tab2:
                     st.session_state["editing"] = c
                     st.session_state.pop("confirm_del", None)
             with rc4:
-                if st.button("Borrar", key=f"del_{c}", use_container_width=True):
+                if st.button("🗑", key=f"del_{c}", type="tertiary", help=f"Borrar {display_name(c)}"):
                     st.session_state["confirm_del"] = c
                     st.session_state.pop("editing", None)
 
@@ -1016,7 +1037,7 @@ with tab2:
                         st.rerun()
 
             if st.session_state.get("confirm_del") == c:
-                st.warning(f"¿Borrar {c}?")
+                st.warning(f"¿Borrar {display_name(c)}?")
                 dc1, dc2 = st.columns(2)
                 with dc1:
                     if st.button("Si, borrar", type="primary", use_container_width=True, key=f"confirm_del_{c}"):

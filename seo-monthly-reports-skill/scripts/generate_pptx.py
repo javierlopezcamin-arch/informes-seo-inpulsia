@@ -12,7 +12,7 @@ from pptx.enum.text import PP_ALIGN
 from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION
 from pptx.dml.color import RGBColor
 from pptx.chart.data import CategoryChartData
-from utils import MESES, get_output_dir, fmt_int, fmt_dec, fmt_pct, fmt_text_num
+from utils import MESES, get_output_dir, fmt_int, fmt_dec, fmt_pct, fmt_text_num, display_name
 
 try:
     import charts as gcharts
@@ -348,7 +348,7 @@ def add_cover_slide(prs, client_name: str, month: int, year: int, client_logo=No
     # Nombre cliente
     tb2 = slide.shapes.add_textbox(Inches(0.5), Inches(y_name), Inches(9.2), Inches(0.7))
     p2 = tb2.text_frame.paragraphs[0]
-    p2.text = client_name.upper()
+    p2.text = display_name(client_name).upper()
     p2.font.size = Pt(28)
     p2.font.bold = True
     p2.font.color.rgb = LIME

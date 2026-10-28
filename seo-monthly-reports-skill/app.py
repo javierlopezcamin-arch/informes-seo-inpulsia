@@ -18,6 +18,7 @@ ALL_SECTIONS = ["resumen","trafico","canales","search","keywords","pagespeed","r
 DEFAULT_SECTIONS = list(ALL_SECTIONS)
 SECTION_LABELS = {"resumen":"Resumen Ejecutivo","trafico":"Tráfico Web","canales":"Canales y Audiencia","search":"Rendimiento en Google","keywords":"Keywords y Páginas","ads":"Google Ads (opcional)","pagespeed":"SEO Técnico","recomendaciones":"Análisis y Recomendaciones","conclusiones":"Conclusiones","glosario":"Glosario"}
 # El ajuste de datos (boost) no se recuerda a propósito: debe partir siempre de "Datos reales".
+BOOSTS = {"Datos reales": "1.0", "+10 %": "1.10", "+20 %": "1.20", "+30 %": "1.30", "+50 %": "1.50"}
 PREF_DEFAULTS = {"design": "Inpulsia 2", "sections": DEFAULT_SECTIONS, "include_notes": True,
                  "notes_level": "Analítico", "upload_drive": False}
 
@@ -146,6 +147,14 @@ html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;colo
 [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked){background:rgba(198,255,42,.12)!important;border-color:var(--orange)!important;}
 [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) p{color:var(--orange)!important;font-weight:600!important;}
 [data-testid="stRadio"] [role="radiogroup"] label>div:first-child{display:none!important;}
+
+/* Segmented control (ajuste de datos): una fila, mismo estilo que las píldoras */
+[data-testid="stButtonGroup"] label[data-testid="stWidgetLabel"] p{color:var(--muted)!important;font-size:11px!important;font-weight:600!important;text-transform:uppercase!important;letter-spacing:1px!important;}
+[data-testid="stButtonGroup"] button{background:var(--bg3)!important;border:1px solid var(--line)!important;color:var(--text)!important;transition:all .18s!important;}
+[data-testid="stButtonGroup"] button:hover{border-color:var(--line2)!important;}
+[data-testid="stButtonGroup"] button p{color:var(--text)!important;font-size:13px!important;white-space:nowrap!important;}
+[data-testid="stButtonGroup"] button[kind$="Active"]{background:rgba(198,255,42,.12)!important;border-color:var(--orange)!important;}
+[data-testid="stButtonGroup"] button[kind$="Active"] p{color:var(--orange)!important;font-weight:600!important;}
 
 /* Multiselect tags compact — chips de marca: lima translúcido, texto lima, borde fino */
 [data-testid="stMultiSelect"] span[data-baseweb="tag"]{font-size:11px!important;padding:2px 6px!important;height:auto!important;background:rgba(198,255,42,.1)!important;border:1px solid rgba(198,255,42,.32)!important;border-radius:8px!important;}
@@ -680,8 +689,15 @@ with tab1:
             design_val = {"Inpulsia 1": "inpulsia1", "Inpulsia 2": "inpulsia2"}[design_opt]
         col_boost, col_sec = st.columns([35, 65])
         with col_boost:
-            boost_opt = st.radio("Ajuste de datos", ["Datos reales", "+10%", "+20%", "+30%", "+50%"], horizontal=True, key="boost")
-            boost_val = {"Datos reales": "1.0", "+10%": "1.10", "+20%": "1.20", "+30%": "1.30", "+50%": "1.50"}[boost_opt]
+            boost_opt = st.segmented_control("Ajuste de datos", list(BOOSTS), default="Datos reales",
+                                             required=True, key="boost")
+            boost_val = BOOSTS[boost_opt]
+            if boost_val != "1.0":
+                # Un ajuste activo se ve distinto de «Datos reales» para no dejarlo puesto sin querer
+                st.markdown('<style>.st-key-boost button[kind$="Active"]{background:rgba(255,112,67,.14)!important;'
+                            'border-color:#FF7043!important;}.st-key-boost button[kind$="Active"] p{color:#FF9A76!important;}</style>',
+                            unsafe_allow_html=True)
+                st.caption(f"Cifras del informe × {boost_val.replace('.', ',')} · el archivo de propuestas usa los datos reales")
         with col_sec:
             st.markdown('<p style="font-size:0.85rem;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Opciones del informe</p>', unsafe_allow_html=True)
             sections_sel = st.multiselect("Secciones", ALL_SECTIONS, format_func=lambda s:SECTION_LABELS[s], key="sections", label_visibility="collapsed")

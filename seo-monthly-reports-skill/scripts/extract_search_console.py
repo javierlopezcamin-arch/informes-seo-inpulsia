@@ -56,8 +56,8 @@ class SearchConsoleExtractor:
         print(f"  ✅ Impresiones: {data['impressions']} | Clics: {data['clicks']}")
         return data
 
-    def get_top_keywords(self, month: int, year: int, limit: int = 10) -> list:
-        """Top keywords por impresiones"""
+    def get_top_keywords(self, month: int, year: int, limit: int = 50) -> list:
+        """Top keywords por clics (50: el análisis descarta luego las de poco volumen o muy lejos)"""
         start_date, end_date = self._date_range(month, year)
 
         response = self.service.searchanalytics().query(
@@ -160,7 +160,7 @@ class SearchConsoleExtractor:
 def extract_search_console_data(site_url: str, month: int, year: int) -> dict:
     """Función principal — extrae todos los datos de Search Console"""
     import hashlib
-    cache_key = f"sc_{hashlib.md5(site_url.encode()).hexdigest()[:8]}_{year}_{month:02d}_v3"
+    cache_key = f"sc_{hashlib.md5(site_url.encode()).hexdigest()[:8]}_{year}_{month:02d}_v4"
     cached = cache_read(cache_key, month_ttl_hours(month, year))
     if cached:
         print("  ⚡ Search Console: datos desde caché")

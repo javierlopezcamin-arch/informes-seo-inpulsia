@@ -9,6 +9,8 @@ from datetime import datetime
 from utils import MESES, pct_delta, fmt_int, fmt_dec, fmt_pct
 
 AI_TIMEOUT_MS = 90_000
+# Keywords sin ruido en «Top keywords» y «Oportunidades»
+KW_MIN_IMPRESSIONS, KW_MAX_POSITION = 10, 50
 
 
 class SEOAnalyzer:
@@ -87,8 +89,19 @@ class SEOAnalyzer:
         }
 
     # ── Keywords ─────────────────────────────────────────────
+    def _clean_keywords(self) -> list:
+        """Keywords sin ruido: fuera las de < 10 impresiones o más allá de la posición 50,
+        ordenadas por clics y luego por impresiones. En una web pequeña (quedan < 3) basta
+        con quitar las de más allá de la posición 50."""
+        kws = self.sc.get('top_keywords', [])
+        clean = [k for k in kws if k.get('impressions', 0) >= KW_MIN_IMPRESSIONS
+                 and k.get('position', 0) <= KW_MAX_POSITION]
+        if len(clean) < 3:
+            clean = [k for k in kws if k.get('position', 0) <= KW_MAX_POSITION] or kws
+        return sorted(clean, key=lambda k: (-k.get('clicks', 0), -k.get('impressions', 0)))
+
     def analyze_keywords(self) -> Dict:
-        keywords = self.sc.get('top_keywords', [])
+        keywords = self._clean_keywords()
         if not keywords:
             return {'top_keywords': [], 'narrative': "No hay datos suficientes de keywords."}
 
@@ -371,7 +384,7 @@ class SEOAnalyzer:
     # ── Oportunidades página 2 (#6) ──────────────────────────
     def analyze_opportunities(self) -> Dict:
         kws = self.sc.get('top_keywords', [])
-        opps = [k for k in kws if 10 < k['position'] <= 20]
+        opps = [k for k in kws if 10 < k['position'] <= 20 and k.get('impressions', 0) >= KW_MIN_IMPRESSIONS]
         opps.sort(key=lambda x: -x.get('impressions', 0))
         opps = opps[:8]
         items = [{

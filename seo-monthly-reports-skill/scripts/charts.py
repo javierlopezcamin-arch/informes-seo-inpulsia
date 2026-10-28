@@ -50,14 +50,27 @@ def _base_ax(ax):
 
 
 def _es_ticks(ax):
-    """Cifras del eje Y con punto de miles y coma decimal."""
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: fmt_num(v)))
+    """Cifras del eje Y con punto de miles y coma decimal (sin negativos: son solo margen)."""
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: fmt_num(v) if v >= 0 else ""))
+
+
+def _full_month(daily: list, keys: tuple) -> list:
+    """Rellena con 0 los días sin datos (GA4 omite los días sin visitas), del 1 al último
+    día con datos, para que el eje no salte del 04 al 07 sin avisar."""
+    import calendar
+    raw = {d["date"].replace("-", ""): d for d in daily}
+    first = min(raw)
+    y, m = int(first[:4]), int(first[4:6])
+    last = min(int(max(raw)[6:8]), calendar.monthrange(y, m)[1])
+    return [raw.get(f"{y}{m:02d}{day:02d}", {"date": f"{y}{m:02d}{day:02d}", **{k: 0 for k in keys}})
+            for day in range(1, last + 1)]
 
 
 def gsc_performance_line(daily: list) -> str | None:
     """Línea doble clics/impresiones estilo Search Console."""
     if not HAS_MPL or len(daily) < 2:
         return None
+    daily = _full_month(daily, ("clicks", "impressions"))
     days = [d["date"][-2:] for d in daily]
     clicks = [d["clicks"] for d in daily]
     imps = [d["impressions"] for d in daily]
@@ -94,6 +107,7 @@ def ga4_users_line(daily: list) -> str | None:
     """Área de usuarios diarios estilo GA4."""
     if not HAS_MPL or len(daily) < 2:
         return None
+    daily = _full_month(daily, ("users", "sessions"))
     days = [d["date"][-2:] for d in daily]
     users = [d["users"] for d in daily]
 
@@ -135,7 +149,7 @@ def hbar(items: list, label_key: str, value_key: str, color: str = G_BLUE) -> st
     """Barras horizontales (dispositivos, países…)."""
     if not HAS_MPL or not items:
         return None
-    labels = [str(i[label_key]).capitalize() for i in items][::-1]
+    labels = [(lambda t: t[:1].upper() + t[1:])(str(i[label_key])) for i in items][::-1]   # «United States», no «United states»
     values = [i[value_key] for i in items][::-1]
 
     fig, ax = plt.subplots(figsize=(5.4, 3.4))
@@ -188,6 +202,9 @@ def mom_change_bars(metrics: list, month_prev: str) -> str | None:
 
 def trend_line_6m(historical: list) -> str | None:
     """Línea de tendencia de 6 meses: usuarios (lima) + impresiones (azul) en doble eje."""
+    # Fuera los primeros meses sin ningún dato (web recién medida): no son un «0» real
+    while historical and not (historical[0]['users'] or historical[0]['impressions']):
+        historical = historical[1:]
     if not HAS_MPL or len(historical) < 3:
         return None
     labels = [h['label'] for h in historical]
@@ -208,7 +225,7 @@ def trend_line_6m(historical: list) -> str | None:
     ax1.tick_params(axis="y", labelcolor=NAVY, labelsize=12)
     u_rng = (max(users) - min(users)) or 1
     ax1.set_ylim(min(users) - u_rng * 0.45, max(users) + u_rng * 0.40)
-    for i, v in enumerate(users):
+    for i, v in [(i, v) for i, v in enumerate(users) if v]:
         ax1.annotate(fmt_int(v), (i, v), textcoords="offset points", xytext=(0, 12),
                      ha="center", fontsize=12, fontweight="bold", color=NAVY, zorder=6)
 
@@ -221,7 +238,7 @@ def trend_line_6m(historical: list) -> str | None:
     _es_ticks(ax2)
     i_rng = (max(impressions) - min(impressions)) or 1
     ax2.set_ylim(min(impressions) - i_rng * 0.45, max(impressions) + i_rng * 0.40)
-    for i, v in enumerate(impressions):
+    for i, v in [(i, v) for i, v in enumerate(impressions) if v]:
         ax2.annotate(fmt_int(v), (i, v), textcoords="offset points", xytext=(0, -19),
                      ha="center", fontsize=11, color=G_BLUE, zorder=6)
     for spine in ("top", "left", "right"):

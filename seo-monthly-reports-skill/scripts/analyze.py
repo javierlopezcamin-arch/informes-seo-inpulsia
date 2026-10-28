@@ -457,7 +457,7 @@ class SEOAnalyzer:
 
     # ── Keywords ganadas / perdidas (#5) ────────────────────
     def analyze_keyword_movements(self) -> Dict:
-        curr_kws = {k['query']: k for k in self.sc.get('top_keywords', [])}
+        curr_kws = {k['query']: k for k in self.sc.get('top_keywords', []) if k['position'] <= KW_MAX_POSITION}
         prev_kws = {k['query']: k for k in self.sc_prev.get('top_keywords', [])}
         if not curr_kws or not prev_kws:
             return {'gained': [], 'lost': [], 'new': []}

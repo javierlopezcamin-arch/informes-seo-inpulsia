@@ -277,7 +277,7 @@ def add_executive(prs, summary, month, year):
     for line in lines[:3]:
         _oval(s, 0.62, y + 0.07, 0.14, LIME)
         _text(s, 0.95, y, 8.3, 0.55, line, size=14, color=WHITE, font=F_BODY)
-        y += 0.66
+        y += max(0.66, _text_lines(line, 14, 8.3) * 14 * 1.2 / 72 + 0.2)   # frases de 3 líneas no se pisan
 
 
 # ── Índice ───────────────────────────────────────────────────
@@ -634,11 +634,11 @@ def add_panel_screenshots(prs, client_name):
                 ratio = im.width / im.height
         except Exception:
             ratio = 16 / 9
-        max_w, max_h = 8.5, 3.0
+        max_w, max_h = TABLE_W, 3.25
         w = min(max_w, max_h * ratio)
         h = w / ratio
-        x = (10 - w) / 2 - 0.2
-        y = 2.0
+        x = 0.6 + (TABLE_W - w) / 2
+        y = 1.95
         _round(s, x - 0.08, y - 0.08, w + 0.16, h + 0.16, NAVY, radius=0.04)
         s.shapes.add_picture(img_path, Inches(x), Inches(y), width=Inches(w), height=Inches(h))
 
@@ -667,7 +667,7 @@ def _add_recommendations_slide1(prs, anomalies, section):
     for a in anomalies[:5]:
         _round(s, 0.6, y + 0.04, 0.05, 0.34, RGBColor(0xF0, 0xA8, 0x20), radius=0.0)
         _text(s, 0.8, y, 8.0, 0.45, a, size=12, color=NAVY, font=F_BODY)
-        y += 0.5
+        y += max(0.5, _text_lines(a, 12, 8.0) * 12 * 1.2 / 72 + 0.16)
 
 
 def _add_recommendations_slide2(prs, recommendations, section):
@@ -687,7 +687,7 @@ def _add_recommendations_slide2(prs, recommendations, section):
         cr.font.name = F_TITLE; cr.font.color.rgb = LIME
         _text(s, 1.15, y + 0.02, 7.7, 0.5, rec, size=12, color=NAVY, font=F_BODY,
               anchor=MSO_ANCHOR.MIDDLE)
-        y += 0.6
+        y += max(0.6, _text_lines(rec, 12, 7.7) * 12 * 1.2 / 72 + 0.16)
 
 
 def _add_recommendations_single(prs, recommendations, section):
@@ -707,7 +707,7 @@ def _add_recommendations_single(prs, recommendations, section):
         cr.font.name = F_TITLE; cr.font.color.rgb = LIME
         _text(s, 1.15, y + 0.02, 7.7, 0.5, rec, size=12, color=NAVY, font=F_BODY,
               anchor=MSO_ANCHOR.MIDDLE)
-        y += 0.6
+        y += max(0.6, _text_lines(rec, 12, 7.7) * 12 * 1.2 / 72 + 0.16)
 
 
 # ── Glosario ─────────────────────────────────────────────────

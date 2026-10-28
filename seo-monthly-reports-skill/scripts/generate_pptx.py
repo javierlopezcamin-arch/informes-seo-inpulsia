@@ -483,7 +483,7 @@ def add_kpi_slide(prs, title: str, narrative: str, kpis: list, section: str, sec
             tb_d = slide.shapes.add_textbox(Inches(x + 0.14), Inches(card_y + 1.55), Inches(card_w - 0.18), Inches(0.42))
             p_d = tb_d.text_frame.paragraphs[0]
             p_d.text = f"{delta}  vs mes anterior"
-            p_d.font.size = Pt(9)
+            p_d.font.size = Pt(10)
             p_d.font.color.rgb = dcol
 
 
@@ -1232,7 +1232,7 @@ def add_executive_slide(prs, summary: str, month: int, year: int):
         p.font.size = Pt(15)
         p.font.color.rgb = OFFWH
         p.space_after = Pt(6)
-        y += 0.65
+        y += max(0.65, _text_lines(line, 15, 8.5) * 15 * 1.2 / 72 + 0.22)   # frases de 3 líneas no se pisan
 
 
 def _add_insight_box(slide, text: str, y: float = 4.85):
@@ -1354,6 +1354,8 @@ def add_opportunities_slide(prs, opps_data: dict, section: str = "", section_num
         p.font.size = Pt(TABLE_HEAD_FONT)
         p.font.bold = True
         p.font.color.rgb = LIME
+        if j > 0:
+            p.alignment = PP_ALIGN.RIGHT
 
     for i, row in enumerate(rows, 1):
         for j, val in enumerate(row):
@@ -1429,8 +1431,8 @@ def _add_recs_slide_anomalies(prs, anomalies, section, section_num):
         tb.text_frame.word_wrap = True
         p = tb.text_frame.paragraphs[0]
         p.text = a
-        p.font.size = Pt(11.5); p.font.color.rgb = DARK
-        y += 0.5
+        p.font.size = Pt(12.5); p.font.color.rgb = DARK
+        y += max(0.5, _text_lines(a, 12.5, 8.9) * 12.5 * 1.2 / 72 + 0.18)
 
 
 def _add_recs_slide_recs(prs, recommendations, section, section_num):
@@ -1458,8 +1460,8 @@ def _add_recs_slide_recs(prs, recommendations, section, section_num):
         tb.text_frame.word_wrap = True
         p = tb.text_frame.paragraphs[0]
         p.text = rec
-        p.font.size = Pt(12); p.font.color.rgb = DARK
-        y += 0.62
+        p.font.size = Pt(13); p.font.color.rgb = DARK
+        y += max(0.62, _text_lines(rec, 13, 8.5) * 13 * 1.2 / 72 + 0.2)
 
 
 GLOSSARY = [

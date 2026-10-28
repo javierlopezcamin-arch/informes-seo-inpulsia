@@ -14,6 +14,7 @@ proyecto de Google Cloud está en modo "Testing": publícala (In production).
 import os
 import re
 from google_auth_oauthlib.flow import InstalledAppFlow
+from utils import write_env
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLIENT_SECRET_PATH = os.path.join(BASE_DIR, "credenciales", "google_ads_client_secret.json")
@@ -27,8 +28,7 @@ def save_token(token: str) -> None:
     line = f"GOOGLE_ADS_REFRESH_TOKEN={token}"
     pat = r"(?m)^\s*GOOGLE_ADS_REFRESH_TOKEN\s*=.*$"
     content = re.sub(pat, lambda _: line, content) if re.search(pat, content) else content + f"\n{line}\n"
-    with open(ENV_PATH, "w", encoding="utf-8") as f:
-        f.write(content)
+    write_env(ENV_PATH, content)
 
 
 def main():

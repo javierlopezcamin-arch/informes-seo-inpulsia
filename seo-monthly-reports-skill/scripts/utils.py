@@ -13,6 +13,33 @@ _TTL_HOURS = 24
 _TTL_CLOSED_MONTH_HOURS = 24 * 30
 
 
+_ENV_BACKUPS = 10
+
+
+def write_env(path: str, content: str) -> None:
+    """Reescribe el .env de forma segura: copia de la versión actual en
+    ~/.cache/seo-reports/env_backups (se guardan las últimas 10) y escritura atómica,
+    para que un fallo a mitad no deje el archivo cortado."""
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            old = f.read()
+        if content.count("\n") < old.count("\n") * 0.5:
+            raise ValueError("El .env nuevo perdería más de la mitad de sus líneas: no se guarda")
+        if old != content:
+            bdir = os.path.join(_CACHE_DIR, "env_backups")
+            os.makedirs(bdir, exist_ok=True)
+            bpath = os.path.join(bdir, f"env_{datetime.now():%Y%m%d_%H%M%S_%f}.bak")
+            fd = os.open(bpath, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(old)
+            for old_b in sorted(os.listdir(bdir))[:-_ENV_BACKUPS]:
+                os.remove(os.path.join(bdir, old_b))
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(content)
+    os.replace(tmp, path)
+
+
 def prev_month(month: int, year: int) -> tuple[int, int]:
     """Devuelve (mes, año) del mes anterior."""
     return (12, year - 1) if month == 1 else (month - 1, year)

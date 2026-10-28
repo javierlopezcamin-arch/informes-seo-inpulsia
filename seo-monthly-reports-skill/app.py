@@ -9,7 +9,7 @@ MAIN_PY  = os.path.join(BASE_DIR, "main.py")
 sys.path.insert(0, os.path.join(BASE_DIR, "scripts"))
 import json, html
 from concurrent.futures import ThreadPoolExecutor
-from utils import GEMINI_DAILY_LIMIT, gemini_usage, _CACHE_DIR
+from utils import GEMINI_DAILY_LIMIT, gemini_usage, _CACHE_DIR, write_env
 import access_check as ac
 
 PREFS_PATH = os.path.join(_CACHE_DIR, "ui_prefs.json")
@@ -236,8 +236,7 @@ def set_output_dir(path):
         content = re.sub(r"(?m)^\s*OUTPUT_DIR\s*=.*$", f"OUTPUT_DIR={path}", content)
     else:
         content += f"\nOUTPUT_DIR={path}\n"
-    with open(ENV_PATH,"w",encoding="utf-8") as f:
-        f.write(content)
+    write_env(ENV_PATH, content)
 
 def get_api_key():
     if os.path.exists(ENV_PATH):
@@ -255,8 +254,7 @@ def set_api_key(key):
         content = re.sub(r"(?m)^\s*ANTHROPIC_API_KEY\s*=.*$", f"ANTHROPIC_API_KEY={key}", content)
     else:
         content += f"\nANTHROPIC_API_KEY={key}\n"
-    with open(ENV_PATH,"w",encoding="utf-8") as f:
-        f.write(content)
+    write_env(ENV_PATH, content)
 
 def get_ia_enabled():
     if os.path.exists(ENV_PATH):
@@ -274,8 +272,7 @@ def set_ia_enabled(val: bool):
         content = re.sub(r"(?m)^\s*IA_ENABLED\s*=.*$", f"IA_ENABLED={v}", content)
     else:
         content += f"\nIA_ENABLED={v}\n"
-    with open(ENV_PATH,"w",encoding="utf-8") as f:
-        f.write(content)
+    write_env(ENV_PATH, content)
 
 def get_gemini_key():
     if os.path.exists(ENV_PATH):
@@ -293,8 +290,7 @@ def set_gemini_key(key):
         content = re.sub(r"(?m)^\s*GOOGLE_GEMINI_API_KEY\s*=.*$", f"GOOGLE_GEMINI_API_KEY={key}", content)
     else:
         content += f"\nGOOGLE_GEMINI_API_KEY={key}\n"
-    with open(ENV_PATH,"w",encoding="utf-8") as f:
-        f.write(content)
+    write_env(ENV_PATH, content)
 
 def get_logo_url(name):
     if os.path.exists(ENV_PATH):
@@ -308,7 +304,8 @@ def add_client_to_env(name, ga4_id, sc_url, logo_url=""):
     block = f"\n# --- Cliente: {name} ---\nGA4_PROPERTY_ID_{name}={ga4_id}\nSEARCH_CONSOLE_URL_{name}={sc_url}\n"
     if logo_url:
         block += f"LOGO_URL_{name}={logo_url}\n"
-    with open(ENV_PATH,"a",encoding="utf-8") as f: f.write(block)
+    with open(ENV_PATH,"r",encoding="utf-8") as f: content = f.read()
+    write_env(ENV_PATH, content + block)
 
 def get_ads_id(name):
     with open(ENV_PATH, "r", encoding="utf-8") as f:
@@ -327,8 +324,7 @@ def set_ads_id(name, ads_id):
         content = re.sub(pat, f"GOOGLE_ADS_CUSTOMER_ID_{name}={ads_id}\n" if ads_id else "", content)
     elif ads_id:
         content = re.sub(rf"(SEARCH_CONSOLE_URL_{name}\s*=\s*\S+)", rf"\1\nGOOGLE_ADS_CUSTOMER_ID_{name}={ads_id}", content, count=1)
-    with open(ENV_PATH, "w", encoding="utf-8") as f:
-        f.write(content)
+    write_env(ENV_PATH, content)
 
 def get_ads_flag(name):
     with open(ENV_PATH, "r", encoding="utf-8") as f:
@@ -348,8 +344,7 @@ def set_ads_flag(name, on):
         m = list(re.finditer(anchor, content))
         if m:
             content = content[:m[-1].end()] + f"\nADS_EN_INFORME_{name}=true" + content[m[-1].end():]
-    with open(ENV_PATH, "w", encoding="utf-8") as f:
-        f.write(content)
+    write_env(ENV_PATH, content)
 
 def get_client_data(name):
     ga4_id, sc_url = "", ""
@@ -376,8 +371,7 @@ def delete_client(name):
         if re.match(rf"\s*WP_MCP_{name}\s*=", line): continue
         if skip and line.strip() == "": skip = False; continue
         if not skip: new_lines.append(line)
-    with open(ENV_PATH,"w",encoding="utf-8") as f:
-        f.writelines(new_lines)
+    write_env(ENV_PATH, "".join(new_lines))
 
 def update_client(old_name, new_ga4, new_sc, new_logo=""):
     with open(ENV_PATH,"r",encoding="utf-8") as f:
@@ -390,8 +384,7 @@ def update_client(old_name, new_ga4, new_sc, new_logo=""):
         else:
             content = re.sub(rf"(SEARCH_CONSOLE_URL_{old_name}\s*=\s*\S+)",
                              r"\1" + f"\nLOGO_URL_{old_name}={new_logo}", content)
-    with open(ENV_PATH,"w",encoding="utf-8") as f:
-        f.write(content)
+    write_env(ENV_PATH, content)
 
 st.set_page_config(page_title="SEO Reports - Inpulsia", page_icon="https://inpulsia.es/wp-content/uploads/2025/12/favicon-inpulsia.png", layout="wide")
 st.markdown(CSS, unsafe_allow_html=True)

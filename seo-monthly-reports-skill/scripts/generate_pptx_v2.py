@@ -20,6 +20,8 @@ from pptx.dml.color import RGBColor
 from utils import MESES, get_output_dir, fmt_int, fmt_dec, fmt_pct, fmt_text_num, display_name
 from generate_pptx import _get_logo, _get_client_logo, convert_to_pdf, _CACHE_DIR  # noqa: F401 (reexport)
 from generate_pptx import ROW_H, ROW_H_MIN, _rows_fit, _paginate_rows, _paginate_text
+from generate_pptx import (NARR_SIZE, SHORT_ROWS, TABLE_FONT, TABLE_HEAD_FONT, _narr_bottom, _clip,
+                           _short_table, _table_font, _text_lines)
 from generate_pptx import _ai_slide_data, _decay_slide_data
 
 try:
@@ -176,6 +178,13 @@ def _header(slide, kicker, title, section=""):
     if section:
         _text(slide, 5.5, 0.58, 3.9, 0.3, section, size=9, color=MUTE,
               font=F_BODY_SB, align=PP_ALIGN.RIGHT, caps=True, track=60)
+
+
+def _narrative(slide, text, y=1.78):
+    """Entradilla gris bajo la cabecera. Devuelve la y donde puede empezar el contenido."""
+    if text:
+        _text(slide, 0.6, y, 8.7, _narr_bottom(text, y, 8.7) - y, text, size=NARR_SIZE, color=MUTE, font=F_BODY)
+    return _narr_bottom(text, y, 8.7)
 
 
 def _delta_color(delta: str, lower_better: bool = False) -> RGBColor:
@@ -349,13 +358,12 @@ def add_kpi(prs, kicker, title, narrative, kpis, section):
     _decor(s)
     _header(s, kicker, title, section)
 
-    if narrative:
-        _text(s, 0.6, 1.78, 8.7, 0.5, narrative, size=11, color=MUTE, font=F_BODY)
+    card_y = max(2.45, _narrative(s, narrative))
+    card_h = min(2.25, 4.8 - card_y)   # la nota IA empieza en 4.9
 
     n = len(kpis)
     margin, gap = 0.6, 0.18
-    card_w = (10 - 2 * margin - gap * (n - 1)) / n
-    card_h, card_y = 2.25, 2.5
+    card_w = (TABLE_W - gap * (n - 1)) / n
 
     for i, kpi in enumerate(kpis):
         x = margin + i * (card_w + gap)
@@ -365,12 +373,14 @@ def add_kpi(prs, kicker, title, narrative, kpis, section):
         _round(s, x, card_y, card_w, card_h, SOFT, radius=0.1, line=GHOST, line_w=1.0)
         _round(s, x + 0.18, card_y + 0.22, 0.4, 0.07, LIME, radius=0.5)
         _text(s, x + 0.18, card_y + 0.42, card_w - 0.3, 0.3, kpi["label"],
-              size=8.5, color=MUTE, font=F_BODY_SB, caps=True, track=40)
+              size=9.5, color=MUTE, font=F_BODY_SB, caps=True, track=40)
         _text(s, x + 0.16, card_y + 0.75, card_w - 0.28, 0.85, str(kpi["value"]),
               size=29, color=NAVY, font=F_TITLE)
         if delta:
-            _text(s, x + 0.18, card_y + 1.68, card_w - 0.3, 0.4,
-                  f"{delta}  vs mes anterior", size=9, color=dcol, font=F_BODY_SB)
+            _text(s, x + 0.18, card_y + card_h - 0.62, card_w - 0.3, 0.26, delta,
+                  size=11, color=dcol, font=F_BODY_SB)
+            _text(s, x + 0.18, card_y + card_h - 0.36, card_w - 0.3, 0.22, "vs mes anterior",
+                  size=8.5, color=MUTE, font=F_BODY)
 
 
 # ── Slide con imagen (gráficos matplotlib) ───────────────────
@@ -380,10 +390,7 @@ def add_image(prs, kicker, title, img_path, narrative, section, note=None):
     _decor(s)
     _header(s, kicker, title, section)
 
-    y_img = 1.85
-    if narrative:
-        _text(s, 0.6, 1.78, 8.7, 0.45, narrative, size=11, color=MUTE, font=F_BODY)
-        y_img = 2.2
+    y_img = _narrative(s, narrative) if narrative else 1.85
 
     if img_path:
         from PIL import Image as _PIL
@@ -392,10 +399,10 @@ def add_image(prs, kicker, title, img_path, narrative, section, note=None):
                 ratio = im.width / im.height
         except Exception:
             ratio = 16 / 9
-        max_w, max_h = 8.7, (4.55 - y_img) if not note else (4.35 - y_img)
+        max_w, max_h = TABLE_W, (5.3 - y_img) if not note else (4.8 - y_img)
         w = min(max_w, max_h * ratio)
         h = w / ratio
-        x = (10 - w) / 2 - 0.2
+        x = 0.6 + (TABLE_W - w) / 2
         s.shapes.add_picture(img_path, Inches(x), Inches(y_img), width=Inches(w), height=Inches(h))
 
     if note:
@@ -407,18 +414,18 @@ def add_double_image(prs, kicker, title, img_l, label_l, img_r, label_r, section
     _decor(s)
     _header(s, kicker, title, section)
 
-    half = 4.25
-    for img, label, x0 in ((img_l, label_l, 0.6), (img_r, label_r, 5.15)):
+    half = (TABLE_W - 0.25) / 2
+    for img, label, x0 in ((img_l, label_l, 0.6), (img_r, label_r, 0.6 + half + 0.25)):
         if not img:
             continue
-        _text(s, x0, 1.85, half, 0.32, label, size=11, color=NAVY, font=F_BODY_SB)
+        _text(s, x0, 1.85, half, 0.32, label, size=13, color=NAVY, font=F_BODY_SB)
         from PIL import Image as _PIL
         try:
             with _PIL.open(img) as im:
                 ratio = im.width / im.height
         except Exception:
             ratio = 4 / 3
-        max_w, max_h = half - 0.2, 2.6
+        max_w, max_h = half, 3.0
         w = min(max_w, max_h * ratio)
         h = w / ratio
         s.shapes.add_picture(img, Inches(x0), Inches(2.25), width=Inches(w), height=Inches(h))
@@ -430,26 +437,27 @@ def add_double_image(prs, kicker, title, img_l, label_l, img_r, label_r, section
 TABLE_W = 8.3
 
 
-def _render_table(slide, headers, rows, y_table, col_widths, row_h=ROW_H):
+def _render_table(slide, headers, rows, y_table, col_widths, row_h=ROW_H, font=TABLE_FONT):
     n_rows, n_cols = len(rows) + 1, len(headers)
     gframe = slide.shapes.add_table(n_rows, n_cols, Inches(0.6), Inches(y_table),
                                     Inches(TABLE_W), Inches(row_h * n_rows))
     table = gframe.table
     table.first_row = False
     table.horz_banding = False
-    if col_widths:
-        total = sum(col_widths)
-        for i, cw in enumerate(col_widths):
-            table.columns[i].width = Inches(TABLE_W * cw / total)
+    widths = col_widths or [1] * n_cols
+    for i, cw in enumerate(widths):
+        table.columns[i].width = Inches(TABLE_W * cw / sum(widths))
+    first_col_w = TABLE_W * widths[0] / sum(widths) - 0.2
 
     for j, hd in enumerate(headers):
         cell = table.cell(0, j)
         cell.fill.solid()
         cell.fill.fore_color.rgb = NAVY
         cell.margin_top = cell.margin_bottom = Inches(0.03)
+        cell.vertical_anchor = MSO_ANCHOR.MIDDLE
         p = cell.text_frame.paragraphs[0]
         p.text = hd.upper()
-        p.font.size = Pt(9)
+        p.font.size = Pt(TABLE_HEAD_FONT)
         p.font.bold = True
         p.font.name = F_BODY_SB
         p.font.color.rgb = LIME
@@ -462,9 +470,10 @@ def _render_table(slide, headers, rows, y_table, col_widths, row_h=ROW_H):
             cell.fill.solid()
             cell.fill.fore_color.rgb = WHITE if i % 2 else SOFT
             cell.margin_top = cell.margin_bottom = Inches(0.02)
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
             p = cell.text_frame.paragraphs[0]
-            p.text = str(val)
-            p.font.size = Pt(9.5)
+            p.text = _clip(val, first_col_w, font) if j == 0 else str(val)
+            p.font.size = Pt(font)
             p.font.name = F_BODY
             p.font.color.rgb = NAVY
             if j > 0:
@@ -473,8 +482,8 @@ def _render_table(slide, headers, rows, y_table, col_widths, row_h=ROW_H):
 
 def add_table(prs, kicker, title, headers, rows, narrative, section, col_widths=None, note=None):
     """Tabla paginada: si no cabe sigue en «(cont.)», nunca con solo 1-2 filas."""
-    y_first, y_rest = (2.2 if narrative else 1.85), 1.85
-    bottom = 4.95 if note else 5.35
+    y_first, y_rest = (_narr_bottom(narrative, 1.78, 8.7) if narrative else 1.85), 1.85
+    bottom = 4.87 if note else 5.35
     pages = _paginate_rows(len(rows), _rows_fit(y_first, bottom, ROW_H), _rows_fit(y_rest, bottom, ROW_H),
                            _rows_fit(y_first, bottom, ROW_H_MIN), _rows_fit(y_rest, bottom, ROW_H_MIN))
     idx = 0
@@ -485,11 +494,13 @@ def add_table(prs, kicker, title, headers, rows, narrative, section, col_widths=
         _header(s, kicker, title if first else f"{title} (cont.)", section)
 
         y_table = y_first if first else y_rest
-        if first and narrative:
-            _text(s, 0.6, 1.78, 8.7, 0.4, narrative, size=11, color=MUTE, font=F_BODY)
+        if first:
+            _narrative(s, narrative)
 
         row_h = min(ROW_H, (bottom - y_table) / (count + 1)) if tight else ROW_H
-        _render_table(s, headers, rows[idx:idx + count], y_table, col_widths, row_h)
+        if len(pages) == 1 and 0 < count <= SHORT_ROWS:
+            y_table, row_h = _short_table(count, y_table, bottom)
+        _render_table(s, headers, rows[idx:idx + count], y_table, col_widths, row_h, _table_font(row_h))
         idx += count
         if note and page == len(pages) - 1:
             _insight_box(s, note)
@@ -514,10 +525,10 @@ def add_keyword_movements(prs, movements, section):
         y = 2.4
         for m in items[:5]:
             _round(s, x0, y, 4.05, 0.5, SOFT, radius=0.18)
-            _text(s, x0 + 0.18, y + 0.06, 2.7, 0.38, m.get("query", ""),
-                  size=10, color=NAVY, font=F_BODY, wrap=False)
-            _text(s, x0 + 2.9, y + 0.06, 1.0, 0.38, fmt_dec(m.get("delta", 0), sign=True),
-                  size=11, color=accent, font=F_BODY_SB, align=PP_ALIGN.RIGHT)
+            _text(s, x0 + 0.18, y + 0.05, 2.75, 0.4, _clip(m.get("query", ""), 2.75, 12),
+                  size=12, color=NAVY, font=F_BODY, wrap=False, anchor=MSO_ANCHOR.MIDDLE)
+            _text(s, x0 + 2.9, y + 0.05, 1.0, 0.4, fmt_dec(m.get("delta", 0), sign=True),
+                  size=13, color=accent, font=F_BODY_SB, align=PP_ALIGN.RIGHT, anchor=MSO_ANCHOR.MIDDLE)
             y += 0.58
 
     _col(gained, 0.6, "Subieron", GREEN, True)
@@ -544,9 +555,7 @@ def add_pagespeed(prs, ps_data, section):
     s = _slide(prs)
     _decor(s)
     _header(s, "salud técnica del sitio", "SEO TÉCNICO", section)
-    _text(s, 0.6, 1.78, 8.7, 0.45,
-          "Rendimiento, SEO técnico y accesibilidad según Google PageSpeed Insights.",
-          size=11, color=MUTE, font=F_BODY)
+    _narrative(s, "Rendimiento, SEO técnico y accesibilidad según Google PageSpeed Insights.")
 
     def _score_color(score):
         if score >= 90: return GREEN
@@ -572,7 +581,7 @@ def add_pagespeed(prs, ps_data, section):
            ("CLS", ps_data.get("cls", "—")), ("TBT", ps_data.get("tbt", "—"))]
     _text(s, 0.6, 4.45, 8.7, 0.4,
           "Core Web Vitals:   " + "    ·    ".join(f"{k}: {fmt_text_num(v)}" for k, v in cwv),
-          size=10, color=NAVY, font=F_BODY_SB)
+          size=12, color=NAVY, font=F_BODY_SB)
 
 
 # ── Texto / conclusiones ─────────────────────────────────────
@@ -657,7 +666,7 @@ def _add_recommendations_slide1(prs, anomalies, section):
     y += 0.42
     for a in anomalies[:5]:
         _round(s, 0.6, y + 0.04, 0.05, 0.34, RGBColor(0xF0, 0xA8, 0x20), radius=0.0)
-        _text(s, 0.8, y, 8.0, 0.45, a, size=11, color=NAVY, font=F_BODY)
+        _text(s, 0.8, y, 8.0, 0.45, a, size=12, color=NAVY, font=F_BODY)
         y += 0.5
 
 
@@ -719,17 +728,15 @@ def add_glossary(prs):
     s = _slide(prs)
     _decor(s)
     _header(s, "para entenderlo todo", "GLOSARIO", "Metodología")
-    _text(s, 0.6, 1.78, 8.7, 0.4,
-          "Qué significa cada métrica que aparece en este informe.",
-          size=11, color=MUTE, font=F_BODY)
+    _narrative(s, "Qué significa cada métrica que aparece en este informe.")
 
     half = (len(GLOSSARY) + 1) // 2
     for x0, items in ((0.6, GLOSSARY[:half]), (5.05, GLOSSARY[half:])):
         y = 2.3
         for term, desc in items:
             _round(s, x0, y + 0.03, 0.06, 0.6, LIME, radius=0.0)
-            _text(s, x0 + 0.22, y, 4.1, 0.3, term, size=12, color=NAVY, font=F_BODY_SB)
-            _text(s, x0 + 0.22, y + 0.3, 4.1, 0.5, desc, size=9.5, color=MUTE, font=F_BODY)
+            _text(s, x0 + 0.22, y, 4.1, 0.3, term, size=13, color=NAVY, font=F_BODY_SB)
+            _text(s, x0 + 0.22, y + 0.31, 3.9, 0.5, desc, size=11, color=MUTE, font=F_BODY)
             y += 0.82
 
 
@@ -768,9 +775,11 @@ def add_contact(prs):
 # ── Caja de nota IA ──────────────────────────────────────────
 
 def _insight_box(slide, text, y=5.07):
-    _round(slide, 0.6, y, 8.0, 0.42, RGBColor(0xF2, 0xFB, 0xD6), radius=0.3)
-    _round(slide, 0.6, y, 0.06, 0.42, LIME, radius=0.0)
-    chip = _round(slide, 0.78, y + 0.08, 0.62, 0.26, LIME, radius=0.4)
+    h = 0.42 if _text_lines(text, 10, 6.85) == 1 else 0.6
+    y = min(y, 5.5 - h)
+    _round(slide, 0.6, y, 8.0, h, RGBColor(0xF2, 0xFB, 0xD6), radius=0.3)
+    _round(slide, 0.6, y, 0.06, h, LIME, radius=0.0)
+    chip = _round(slide, 0.78, y + (h - 0.26) / 2, 0.62, 0.26, LIME, radius=0.4)
     cp = chip.text_frame.paragraphs[0]
     cp.alignment = PP_ALIGN.CENTER
     cr = cp.add_run()
@@ -779,8 +788,8 @@ def _insight_box(slide, text, y=5.07):
     cr.font.bold = True
     cr.font.name = F_BODY_SB
     cr.font.color.rgb = NAVY
-    _text(slide, 1.55, y + 0.08, 7.65, 0.32, text, size=9.5, color=NAVY,
-          font=F_BODY, italic=True)
+    _text(slide, 1.55, y + 0.04, 6.95, h - 0.08, text, size=10, color=NAVY,
+          font=F_BODY, italic=True, anchor=MSO_ANCHOR.MIDDLE)
 
 
 # ── Orquestador ──────────────────────────────────────────────

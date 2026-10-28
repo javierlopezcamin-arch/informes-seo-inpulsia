@@ -8,7 +8,7 @@ import urllib.request
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.oxml.xmlchemy import OxmlElement
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION
 from pptx.dml.color import RGBColor
 from pptx.chart.data import CategoryChartData
@@ -173,9 +173,43 @@ def _delta_color(delta: str, lower_better: bool = False) -> RGBColor:
 
 
 # ── Paginación de tablas y textos (compartida con INPULSIA 2) ─
-ROW_H, ROW_H_MIN = 0.34, 0.27   # alto de fila normal y mínimo al apretar
+ROW_H, ROW_H_MIN = 0.38, 0.25   # alto de fila normal y mínimo al apretar (con letra de 11 pt)
+ROW_H_SHORT, SHORT_ROWS = 0.46, 4   # tablas de ≤ 4 filas: filas más altas y centradas
+TABLE_FONT, TABLE_HEAD_FONT = 12, 10
+NARR_SIZE = 13                  # entradilla bajo el título
 MIN_TAIL_ROWS = 3               # una continuación nunca lleva solo 1-2 filas
 MIN_TAIL_LINES = 3              # ni solo 1-3 líneas de texto
+
+
+def _text_lines(text: str, size: float, width_in: float) -> int:
+    """Líneas que ocupa un texto en una caja de width_in pulgadas (~0,53 em por carácter)."""
+    per_line = max(20, int(width_in * 72 / (size * 0.53)))
+    return max(1, -(-len(text) // per_line))
+
+
+def _narr_bottom(text: str, y: float, width_in: float) -> float:
+    """Dónde puede empezar el contenido bajo una entradilla de NARR_SIZE pt."""
+    if not text:
+        return y
+    return y + _text_lines(text, NARR_SIZE, width_in) * NARR_SIZE * 1.2 / 72 + 0.14
+
+
+def _clip(text, width_in: float, size: float) -> str:
+    """Recorta con «…» lo que no cabe en una línea de una columna de tabla."""
+    text = str(text)
+    n = max(8, int(width_in * 72 / (size * 0.56)) - 2)
+    return text if len(text) <= n else text[:n - 1] + "…"
+
+
+def _table_font(row_h: float) -> int:
+    """12 pt; 11 pt si las filas se han apretado por debajo de 0,30"."""
+    return TABLE_FONT if row_h >= 0.3 else TABLE_FONT - 1
+
+
+def _short_table(n_rows: int, top: float, bottom: float) -> tuple:
+    """(y, alto de fila) de una tabla corta centrada en vertical entre top y bottom."""
+    h = ROW_H_SHORT * (n_rows + 1)
+    return top + max(0.0, (bottom - top - h) / 2), ROW_H_SHORT
 
 
 def _rows_fit(top: float, bottom: float, row_h: float) -> int:
@@ -187,8 +221,11 @@ def _paginate_rows(n: int, cap_first: int, cap_rest: int,
                    squeeze_first: int, squeeze_rest: int) -> list:
     """Reparte n filas en diapositivas → [(filas, apretada), …].
     cap_* = filas que caben con el alto normal; squeeze_* = con el alto mínimo.
-    Si la última quedaría con 1-2 filas, se meten en la anterior reduciendo el alto
-    de fila; si no caben, se reparten a partes iguales entre las dos."""
+    Si toda la tabla cabe en una diapositiva bajando el alto de fila, va en una.
+    Si no, y la última quedaría con 1-2 filas, se meten en la anterior reduciendo el
+    alto de fila; si tampoco caben, se reparten a partes iguales entre las dos."""
+    if 0 < n <= squeeze_first:
+        return [(n, n > cap_first)]
     sizes, left = [], n
     while left > 0:
         sizes.append(min(cap_first if not sizes else cap_rest, left))
@@ -211,8 +248,7 @@ def _paginate_text(paras: list, size: float, box_w: float, box_h: float,
     Si lo que pasa a la última cabe en ≤ 3 líneas, baja la letra (hasta min_size) para
     que quepa en una diapositiva menos; si ni así, equilibra las dos últimas."""
     def lines(p, sz):
-        per_line = max(20, int(box_w * 72 / (sz * 0.53)))   # ~0,53 em por carácter
-        return max(1, -(-len(p) // per_line))
+        return _text_lines(p, sz, box_w)
 
     def height(p, sz):
         return lines(p, sz) * sz * 1.2 + space
@@ -277,6 +313,17 @@ def _add_top_bar(slide, right_text: str = ""):
         p.font.bold = True
         p.font.color.rgb = LIME
         p.alignment = PP_ALIGN.RIGHT
+
+
+def _narrative(slide, text: str, y: float = 1.35) -> float:
+    """Entradilla gris bajo el título. Devuelve la y donde puede empezar el contenido."""
+    tb = slide.shapes.add_textbox(Inches(0.45), Inches(y), Inches(9.1), Inches(_narr_bottom(text, y, 9.1) - y))
+    tb.text_frame.word_wrap = True
+    p = tb.text_frame.paragraphs[0]
+    p.text = text
+    p.font.size = Pt(NARR_SIZE)
+    p.font.color.rgb = MUTED
+    return _narr_bottom(text, y, 9.1)
 
 
 def _slide_title(slide, text: str):
@@ -388,20 +435,15 @@ def add_kpi_slide(prs, title: str, narrative: str, kpis: list, section: str, sec
     _slide_title(slide, title)
 
     # Narrativa
-    tb_n = slide.shapes.add_textbox(Inches(0.45), Inches(1.35), Inches(9.1), Inches(0.6))
-    tb_n.text_frame.word_wrap = True
-    p_n = tb_n.text_frame.paragraphs[0]
-    p_n.text = narrative
-    p_n.font.size = Pt(11)
-    p_n.font.color.rgb = MUTED
+    narr_y = _narrative(slide, narrative)
 
     # KPI cards
     n = len(kpis)
     margin = 0.4
     gap = 0.16
     card_w = (10 - 2 * margin - gap * (n - 1)) / n
-    card_h = 2.3
-    card_y = 2.1
+    card_y = max(2.1, narr_y)
+    card_h = min(2.3, 4.75 - card_y)   # la nota IA va en 4.85
 
     for i, kpi in enumerate(kpis):
         x = margin + i * (card_w + gap)
@@ -627,12 +669,7 @@ def add_channels_slide(prs, title: str, channels_data: list, narrative: str, sec
     _slide_title(slide, title)
 
     # Narrativa del canal
-    tb_n = slide.shapes.add_textbox(Inches(0.45), Inches(1.35), Inches(9.1), Inches(0.6))
-    tb_n.text_frame.word_wrap = True
-    p_n = tb_n.text_frame.paragraphs[0]
-    p_n.text = narrative
-    p_n.font.size = Pt(11)
-    p_n.font.color.rgb = MUTED
+    _narrative(slide, narrative)
 
     # Preparar datos (top 5 ordenados de mayor a menor, reversados para orden correcto en eje Y)
     top_channels = sorted(channels_data, key=lambda x: x['sessions'], reverse=True)[:5]
@@ -702,12 +739,7 @@ def add_devices_slide(prs, title: str, devices_data: dict, narrative: str, secti
     _slide_title(slide, title)
 
     # Narrativa del dispositivo
-    tb_n = slide.shapes.add_textbox(Inches(0.45), Inches(1.35), Inches(9.1), Inches(0.6))
-    tb_n.text_frame.word_wrap = True
-    p_n = tb_n.text_frame.paragraphs[0]
-    p_n.text = narrative
-    p_n.font.size = Pt(11)
-    p_n.font.color.rgb = MUTED
+    _narrative(slide, narrative)
 
     # Preparar datos
     chart_data = CategoryChartData()
@@ -933,15 +965,7 @@ def add_image_chart_slide(prs, title: str, img_path: str, narrative: str = "",
         _section_watermark(slide, section_num)
     _slide_title(slide, title)
 
-    y_img = 1.4
-    if narrative:
-        tb_n = slide.shapes.add_textbox(Inches(0.45), Inches(1.32), Inches(9.1), Inches(0.5))
-        tb_n.text_frame.word_wrap = True
-        p_n = tb_n.text_frame.paragraphs[0]
-        p_n.text = narrative
-        p_n.font.size = Pt(11)
-        p_n.font.color.rgb = MUTED
-        y_img = 1.85
+    y_img = _narrative(slide, narrative) if narrative else 1.4
 
     from PIL import Image as _PILImage
     try:
@@ -949,7 +973,7 @@ def add_image_chart_slide(prs, title: str, img_path: str, narrative: str = "",
             ratio = im.width / im.height
     except Exception:
         ratio = 2.6
-    max_w, max_h = 9.1, 5.45 - y_img - 0.15
+    max_w, max_h = 9.1, 5.5 - y_img
     w = min(max_w, max_h * ratio)
     h = w / ratio
     x = (10 - w) / 2
@@ -1018,8 +1042,8 @@ def add_table_slide(prs, title: str, headers: list, rows: list, narrative: str =
                     note: str = None):
     """Tabla premium: cabecera navy, filas alternas, sin bordes pesados.
     Si no cabe sigue en diapositivas «(cont.)», nunca con solo 1-2 filas."""
-    y_first, y_rest = (1.88 if narrative else 1.42), 1.42
-    bottom = 4.8 if note else 5.35
+    y_first, y_rest = (_narr_bottom(narrative, 1.34, 9.1) if narrative else 1.42), 1.42
+    bottom = 4.8 if note else 5.4
     pages = _paginate_rows(len(rows), _rows_fit(y_first, bottom, ROW_H), _rows_fit(y_rest, bottom, ROW_H),
                            _rows_fit(y_first, bottom, ROW_H_MIN), _rows_fit(y_rest, bottom, ROW_H_MIN))
     idx = 0
@@ -1027,14 +1051,18 @@ def add_table_slide(prs, title: str, headers: list, rows: list, narrative: str =
         first = page == 0
         y_table = y_first if first else y_rest
         row_h = min(ROW_H, (bottom - y_table) / (count + 1)) if tight else ROW_H
+        if len(pages) == 1 and 0 < count <= SHORT_ROWS:
+            y_table, row_h = _short_table(count, y_table, bottom)
         slide = _table_page(prs, title if first else f"{title} (cont.)", headers, rows[idx:idx + count],
-                            narrative if first else "", y_table, row_h, section, section_num, col_widths)
+                            narrative if first else "", y_table, row_h, section, section_num, col_widths,
+                            _table_font(row_h))
         idx += count
         if note and page == len(pages) - 1:
             _add_insight_box(slide, note)
 
 
-def _table_page(prs, title, headers, rows, narrative, y_table, row_h, section, section_num, col_widths):
+def _table_page(prs, title, headers, rows, narrative, y_table, row_h, section, section_num, col_widths,
+                font=TABLE_FONT):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = OFFWH
@@ -1045,12 +1073,7 @@ def _table_page(prs, title, headers, rows, narrative, y_table, row_h, section, s
     _slide_title(slide, title)
 
     if narrative:
-        tb_n = slide.shapes.add_textbox(Inches(0.45), Inches(1.34), Inches(9.1), Inches(0.45))
-        tb_n.text_frame.word_wrap = True
-        p_n = tb_n.text_frame.paragraphs[0]
-        p_n.text = narrative
-        p_n.font.size = Pt(11)
-        p_n.font.color.rgb = MUTED
+        _narrative(slide, narrative, y=1.34)
 
     n_rows = len(rows) + 1
     n_cols = len(headers)
@@ -1058,10 +1081,10 @@ def _table_page(prs, title, headers, rows, narrative, y_table, row_h, section, s
                                     Inches(9.1), Inches(row_h * n_rows))
     table = gframe.table
 
-    if col_widths:
-        total = sum(col_widths)
-        for i, cw in enumerate(col_widths):
-            table.columns[i].width = Inches(9.1 * cw / total)
+    widths = col_widths or [1] * n_cols
+    for i, cw in enumerate(widths):
+        table.columns[i].width = Inches(9.1 * cw / sum(widths))
+    first_col_w = 9.1 * widths[0] / sum(widths) - 0.2
 
     # Cabecera
     for j, h in enumerate(headers):
@@ -1069,11 +1092,14 @@ def _table_page(prs, title, headers, rows, narrative, y_table, row_h, section, s
         cell.fill.solid()
         cell.fill.fore_color.rgb = NAVY
         cell.margin_top = cell.margin_bottom = Inches(0.03)
+        cell.vertical_anchor = MSO_ANCHOR.MIDDLE
         p = cell.text_frame.paragraphs[0]
         p.text = h.upper()
-        p.font.size = Pt(9)
+        p.font.size = Pt(TABLE_HEAD_FONT)
         p.font.bold = True
         p.font.color.rgb = LIME
+        if j > 0:
+            p.alignment = PP_ALIGN.RIGHT
 
     # Filas
     for i, row in enumerate(rows, 1):
@@ -1082,9 +1108,10 @@ def _table_page(prs, title, headers, rows, narrative, y_table, row_h, section, s
             cell.fill.solid()
             cell.fill.fore_color.rgb = WHITE if i % 2 else RGBColor(0xEE, 0xF0, 0xF6)
             cell.margin_top = cell.margin_bottom = Inches(0.02)
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
             p = cell.text_frame.paragraphs[0]
-            p.text = str(val)
-            p.font.size = Pt(9.5)
+            p.text = _clip(val, first_col_w, font) if j == 0 else str(val)
+            p.font.size = Pt(font)
             p.font.color.rgb = DARK
             if j > 0:
                 p.alignment = PP_ALIGN.RIGHT
@@ -1102,12 +1129,7 @@ def add_pagespeed_slide(prs, ps_data: dict, section: str = "", section_num: str 
         _section_watermark(slide, section_num)
     _slide_title(slide, "SEO Técnico — PageSpeed Insights")
 
-    tb_n = slide.shapes.add_textbox(Inches(0.45), Inches(1.35), Inches(9.1), Inches(0.5))
-    tb_n.text_frame.word_wrap = True
-    p_n = tb_n.text_frame.paragraphs[0]
-    p_n.text = "Puntuaciones de rendimiento, SEO técnico y accesibilidad del sitio web según Google PageSpeed Insights."
-    p_n.font.size = Pt(11)
-    p_n.font.color.rgb = MUTED
+    _narrative(slide, "Puntuaciones de rendimiento, SEO técnico y accesibilidad del sitio web según Google PageSpeed Insights.")
 
     def _score_color(score):
         if score >= 90: return GREEN
@@ -1161,7 +1183,7 @@ def add_pagespeed_slide(prs, ps_data: dict, section: str = "", section_num: str 
     tb_cwv.text_frame.word_wrap = True
     p_cwv = tb_cwv.text_frame.paragraphs[0]
     p_cwv.text = "Core Web Vitals:  " + "  ·  ".join(f"{k}: {fmt_text_num(v)}" for k, v in cwv)
-    p_cwv.font.size = Pt(10)
+    p_cwv.font.size = Pt(12)
     p_cwv.font.color.rgb = MUTED
 
 
@@ -1254,12 +1276,7 @@ def add_keyword_movements_slide(prs, movements: dict, section: str = "", section
         _section_watermark(slide, section_num)
     _slide_title(slide, "Keywords — Ganadas y Perdidas")
 
-    tb_n = slide.shapes.add_textbox(Inches(0.45), Inches(1.35), Inches(9.1), Inches(0.4))
-    tb_n.text_frame.word_wrap = True
-    p_n = tb_n.text_frame.paragraphs[0]
-    p_n.text = f"{len(gained)} keywords subieron de posición y {len(lost)} bajaron respecto al mes anterior."
-    p_n.font.size = Pt(11)
-    p_n.font.color.rgb = MUTED
+    _narrative(slide, f"{len(gained)} keywords subieron de posición y {len(lost)} bajaron respecto al mes anterior.")
 
     def _draw_col(items, x_start, col_w, label, accent_color, arrow):
         tb_h = slide.shapes.add_textbox(Inches(x_start), Inches(1.88), Inches(col_w), Inches(0.32))
@@ -1279,14 +1296,14 @@ def add_keyword_movements_slide(prs, movements: dict, section: str = "", section
             tb_q = slide.shapes.add_textbox(Inches(x_start + 0.14), Inches(y + 0.04), Inches(col_w - 1.6), Inches(0.34))
             p_q = tb_q.text_frame.paragraphs[0]
             p_q.text = kw['query']
-            p_q.font.size = Pt(10)
+            p_q.font.size = Pt(12)
             p_q.font.color.rgb = WHITE
 
             tb_d = slide.shapes.add_textbox(Inches(x_start + col_w - 1.4), Inches(y + 0.04), Inches(1.26), Inches(0.34))
             p_d = tb_d.text_frame.paragraphs[0]
             delta = abs(kw['delta'])
             p_d.text = f"pos {fmt_dec(kw['position'])}  {arrow}{fmt_dec(delta)}"
-            p_d.font.size = Pt(9)
+            p_d.font.size = Pt(11)
             p_d.font.bold = True
             p_d.font.color.rgb = accent_color
             p_d.alignment = PP_ALIGN.RIGHT
@@ -1308,12 +1325,7 @@ def add_opportunities_slide(prs, opps_data: dict, section: str = "", section_num
         _section_watermark(slide, section_num)
     _slide_title(slide, "Oportunidades — Página 2 de Google")
 
-    tb_n = slide.shapes.add_textbox(Inches(0.45), Inches(1.35), Inches(9.1), Inches(0.4))
-    tb_n.text_frame.word_wrap = True
-    p_n = tb_n.text_frame.paragraphs[0]
-    p_n.text = opps_data.get('narrative', '')
-    p_n.font.size = Pt(11)
-    p_n.font.color.rgb = MUTED
+    narr_y = _narrative(slide, opps_data.get('narrative', ''))
 
     headers = ["Keyword", "Posición", "Impresiones", "Gap al Top 10"]
     rows = [[it['query'], fmt_dec(it['position']), fmt_int(it['impressions']), f"{fmt_dec(it['gap'], sign=True)} pos."]
@@ -1321,9 +1333,11 @@ def add_opportunities_slide(prs, opps_data: dict, section: str = "", section_num
 
     n_rows = len(rows) + 1
     n_cols = len(headers)
-    table_h = min(3.3, 0.36 * n_rows)
-    gframe = slide.shapes.add_table(n_rows, n_cols, Inches(0.45), Inches(1.92),
-                                    Inches(9.1), Inches(table_h))
+    y_table, row_h = max(1.92, narr_y), ROW_H
+    if len(rows) <= SHORT_ROWS:
+        y_table, row_h = _short_table(len(rows), y_table, 5.4)
+    gframe = slide.shapes.add_table(n_rows, n_cols, Inches(0.45), Inches(y_table),
+                                    Inches(9.1), Inches(min(5.4 - y_table, row_h * n_rows)))
     table = gframe.table
     widths = [4.5, 1.3, 1.8, 1.5]
     total = sum(widths)
@@ -1337,7 +1351,7 @@ def add_opportunities_slide(prs, opps_data: dict, section: str = "", section_num
         cell.margin_top = cell.margin_bottom = Inches(0.03)
         p = cell.text_frame.paragraphs[0]
         p.text = h.upper()
-        p.font.size = Pt(9)
+        p.font.size = Pt(TABLE_HEAD_FONT)
         p.font.bold = True
         p.font.color.rgb = LIME
 
@@ -1349,7 +1363,7 @@ def add_opportunities_slide(prs, opps_data: dict, section: str = "", section_num
             cell.margin_top = cell.margin_bottom = Inches(0.02)
             p = cell.text_frame.paragraphs[0]
             p.text = str(val)
-            p.font.size = Pt(9.5)
+            p.font.size = Pt(TABLE_FONT)
             p.font.color.rgb = DARK
             if j == 3:
                 p.font.color.rgb = RGBColor(0xFB, 0xBC, 0x04)
@@ -1468,11 +1482,7 @@ def add_glossary_slide(prs):
     _add_top_bar(slide, right_text="Glosario")
     _slide_title(slide, "Glosario de Métricas")
 
-    tb_n = slide.shapes.add_textbox(Inches(0.45), Inches(1.35), Inches(9.1), Inches(0.5))
-    p_n = tb_n.text_frame.paragraphs[0]
-    p_n.text = "Qué significa cada métrica que aparece en este informe."
-    p_n.font.size = Pt(11)
-    p_n.font.color.rgb = MUTED
+    _narrative(slide, "Qué significa cada métrica que aparece en este informe.")
 
     half = (len(GLOSSARY) + 1) // 2
     cols = [(0.45, GLOSSARY[:half]), (5.05, GLOSSARY[half:])]
@@ -1487,7 +1497,7 @@ def add_glossary_slide(prs):
             tb_t = slide.shapes.add_textbox(Inches(x0 + 0.2), Inches(y), Inches(4.2), Inches(0.3))
             p_t = tb_t.text_frame.paragraphs[0]
             p_t.text = term
-            p_t.font.size = Pt(12)
+            p_t.font.size = Pt(13)
             p_t.font.bold = True
             p_t.font.color.rgb = DARK
 
@@ -1495,7 +1505,7 @@ def add_glossary_slide(prs):
             tb_d.text_frame.word_wrap = True
             p_d = tb_d.text_frame.paragraphs[0]
             p_d.text = desc
-            p_d.font.size = Pt(9.5)
+            p_d.font.size = Pt(11)
             p_d.font.color.rgb = MUTED
             y += 0.85
 

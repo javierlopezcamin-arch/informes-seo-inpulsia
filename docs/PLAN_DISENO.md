@@ -1,8 +1,31 @@
 # Plan de mejoras de diseño: PPT y web
 
-Estado: **planificado** (2026-10-28). Base: revisión del informe de prueba de 10DECO (sept. 2026),
-exportado a imágenes con Keynote, y capturas de la web. El punto 5 (traducir canales y países)
-queda fuera por decisión de Javi.
+Estado: **hecho** (2026-10-28, un commit por punto). Base: revisión del informe de prueba de 10DECO
+(sept. 2026), exportado a imágenes con Keynote, y capturas de la web. El punto 5 (traducir canales
+y países) queda fuera por decisión de Javi.
+
+## Cómo quedó (y en qué se apartó del plan)
+
+- **Fase 0**: `python3 scripts/dev_preview.py --capture 10deco 9 2026` guarda en `scratch/fixtures`
+  los datos de entrada del análisis y la respuesta de la IA; `dev_preview.py <fixture>.json --tag X`
+  repite el análisis con el código actual, genera los dos diseños y monta las hojas en
+  `scratch/preview/X`. También acepta un `.pptx`.
+- **3**: en vez de bajar el límite de la tabla o achicar la flecha, las tablas (y las tarjetas KPI
+  de Inpulsia 2) se estrechan a 8,3" y terminan antes del círculo: no se pierde ninguna fila.
+- **8**: filas de 0,38" y letra de 12 pt, pero si una tabla cabe entera en una diapositiva apretando
+  hasta 0,25" (entonces a 11 pt), va en una; así el número de diapositivas no crece.
+- **9**: rebote y posición muestran la diferencia absoluta («▲ +7,5 pp», «▼ -1,2 pos.»), no un %.
+- **10**: Search Console trae 50 keywords (caché `_v4`) para que el filtro deje una lista útil; si en
+  una web pequeña quedan menos de 3, solo se quitan las de más allá de la posición 50.
+- **11**: siempre por reglas, sin usar el resumen de la IA: sus frases no siempre son logros (en
+  10DECO una habla de páginas que pierden tracción) y ya tienen su diapositiva.
+- **13**: el selector usa `--bg3` (como los demás desplegables) para que contraste dentro de las
+  tarjetas del punto 14, que son `--bg2`.
+- **15**: el nombre legible también sale en la portada de los dos diseños («PISCINAS RIVIERA»).
+- Tras actualizar, reiniciar la web: Streamlit no recarga los módulos de `scripts/` en caliente.
+
+Resultado con las fixtures: 10DECO 26 → 24 diapositivas en Inpulsia 2 (23 + «Lo más destacado»),
+Piscinas Riviera 22 → 19.
 
 Principio: cada fase se puede usar sola; un commit por punto; nada cambia los datos, solo cómo se ven.
 

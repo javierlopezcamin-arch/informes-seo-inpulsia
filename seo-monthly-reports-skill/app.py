@@ -16,7 +16,7 @@ PREFS_PATH = os.path.join(_CACHE_DIR, "ui_prefs.json")
 # Google Ads no es una sección elegible: la activa la marca de cada cliente (ADS_EN_INFORME_<CLIENTE>)
 ALL_SECTIONS = ["resumen","destacados","trafico","canales","search","keywords","pagespeed","recomendaciones","conclusiones","glosario"]
 DEFAULT_SECTIONS = list(ALL_SECTIONS)
-SECTION_LABELS = {"resumen":"Resumen Ejecutivo","destacados":"Lo más destacado","trafico":"Tráfico Web","canales":"Canales y Audiencia","search":"Rendimiento en Google","keywords":"Keywords y Páginas","ads":"Google Ads (opcional)","pagespeed":"SEO Técnico","recomendaciones":"Análisis y Recomendaciones","conclusiones":"Conclusiones","glosario":"Glosario"}
+SECTION_LABELS = {"resumen":"Resumen Ejecutivo","destacados":"Lo más destacado","trafico":"Tráfico Web","canales":"Canales y Audiencia","search":"Rendimiento en Google","keywords":"Keywords y Páginas","ads":"Google Ads (opcional)","pagespeed":"SEO Técnico","recomendaciones":"Recomendaciones","conclusiones":"Conclusiones","glosario":"Glosario"}
 # El ajuste de datos (boost) no se recuerda a propósito: debe partir siempre de "Datos reales".
 BOOSTS = {"Datos reales": "1.0", "+10 %": "1.10", "+20 %": "1.20", "+30 %": "1.30", "+50 %": "1.50"}
 PREF_DEFAULTS = {"design": "Inpulsia 2", "sections": DEFAULT_SECTIONS, "include_notes": True,
@@ -178,6 +178,9 @@ html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;colo
 [data-testid="stCheckbox"] label *,
 [data-testid="stCheckbox"] label p,
 [data-testid="stCheckbox"] label div{color:var(--text)!important;opacity:1!important;font-size:13px!important;}
+/* Casilla marcada en lima con el tic navy (Streamlit la pinta en su rojo por defecto) */
+[data-testid="stCheckbox"] label:has(input:checked)>span:first-child{background-color:var(--orange)!important;border-color:var(--orange)!important;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='%23171A2E' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")!important;background-size:100% 100%!important;background-repeat:no-repeat!important;}
+[data-testid="stCheckbox"] label:not(:has(input:checked))>span:first-child{background-color:var(--bg3)!important;border-color:var(--line2)!important;}
 
 /* File uploader */
 [data-testid="stFileUploaderDropzone"],[data-testid="stFileUploader"] section{background:var(--bg3)!important;border:1.5px dashed var(--line2)!important;border-radius:14px!important;transition:border-color .2s!important;}

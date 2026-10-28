@@ -53,8 +53,8 @@ def friendly_error(exc: Exception) -> str:
         return "Refresh token caducado: ejecuta scripts/generate_ads_refresh_token.py"
     if any(k in blob for k in ("DEVELOPER_TOKEN_NOT_APPROVED", "DEVELOPER_TOKEN_PROHIBITED", "ACTION_NOT_PERMITTED",
                                "only approved for use with test accounts")):
-        return ("Acceso a la API en nivel de prueba: solicita acceso Explorer/Basic en "
-                "Google Ads → Centro de API (la cuenta MCC)")
+        return ("Acceso a la API en nivel de prueba: solicita el acceso Basic en Google Cloud "
+                "(proyecto cappuccino → Google Ads API)")
     if "REQUESTED_METRICS_FOR_MANAGER" in blob:
         return "Ese ID es de una cuenta Manager (MCC): usa el Customer ID de la cuenta de Ads del cliente"
     if any(k in blob for k in ("USER_PERMISSION_DENIED", "CUSTOMER_NOT_ENABLED", "NOT_ADS_USER", "CUSTOMER_NOT_FOUND")):

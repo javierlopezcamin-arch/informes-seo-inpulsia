@@ -88,8 +88,8 @@ def check_tracking(base: str, landing_urls: list = None) -> dict:
                 res["gtm_contains"]["ads"] = sorted(set(res["gtm_contains"]["ads"]) | set(ids["ads"]))
                 # Consent Mode configurado dentro de GTM
                 res["consent_mode"] |= "consent" in r.text and "ad_storage" in r.text
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  ℹ️  Medición: no se pudo leer el contenedor {gtm} ({type(e).__name__})")
 
     ok_pages = [p for p in res["pages"].values() if "error" not in p]
     if ok_pages:

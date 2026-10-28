@@ -29,7 +29,8 @@ def _user_creds():
         return None
     try:
         creds = UserCreds.from_authorized_user_file(TOKEN_PATH, SCOPES)
-    except Exception:
+    except Exception as e:
+        print(f"  ⚠️  Drive: token ilegible ({type(e).__name__}) — reconecta Drive en la web")
         return None
     if creds and creds.valid:
         return creds
@@ -38,7 +39,8 @@ def _user_creds():
             creds.refresh(Request())
             _save_token(creds)
             return creds
-        except Exception:
+        except Exception as e:
+            print(f"  ⚠️  Drive: el token ha caducado o se revocó ({type(e).__name__}) — reconecta Drive en la web")
             return None
     return None
 

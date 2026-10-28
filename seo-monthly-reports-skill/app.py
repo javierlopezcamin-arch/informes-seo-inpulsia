@@ -53,8 +53,9 @@ def main_cmd(client, month, year, *extra):
 
 
 def run_report(cmd, log_box, tail=16, env=None):
-    """Ejecuta main.py mostrando su salida en vivo. Devuelve (returncode, pptx_path, drive_url, propuestas_path)."""
-    lines, filepath, drive_url, prop_path = [], None, None, None
+    """Ejecuta main.py mostrando su salida en vivo.
+    Devuelve (returncode, pptx_path, drive_url, propuestas_path, avisos)."""
+    lines, filepath, drive_url, prop_path, warns = [], None, None, None, []
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=BASE_DIR, env=env)
     for line in proc.stdout:
         lines.append(line.rstrip())
@@ -63,11 +64,15 @@ def run_report(cmd, log_box, tail=16, env=None):
             filepath = line.split("PPTX:", 1)[1].strip()
         if "PROPUESTAS:" in line:
             prop_path = line.split("PROPUESTAS:", 1)[1].strip()
+        # Avisos de main.py (⚠️ parcial, ❌ error): se muestran en el resultado, no solo en el registro
+        w = line.strip()
+        if w.startswith(("⚠️", "❌")) and w not in warns:
+            warns.append(w)
         m = re.search(r"(https://drive\.google\.com/\S+)", line)
         if m and "Propuestas" not in line:
             drive_url = m.group(1)
     proc.wait()
-    return proc.returncode, filepath, drive_url, prop_path
+    return proc.returncode, filepath, drive_url, prop_path, warns
 
 MESES = {1:"Enero",2:"Febrero",3:"Marzo",4:"Abril",5:"Mayo",6:"Junio",
          7:"Julio",8:"Agosto",9:"Septiembre",10:"Octubre",11:"Noviembre",12:"Diciembre"}
@@ -530,6 +535,13 @@ def preflight(sel, month, year):
     return issues
 
 
+def show_warns(warns):
+    """Avisos del informe (secciones que salieron incompletas) en un desplegable."""
+    if warns:
+        with st.expander(f"⚠️ {len(warns)} aviso(s): revisa antes de enviar", expanded=False):
+            st.markdown("\n".join(f"- {html.escape(w.lstrip('⚠️❌ ').strip())}" for w in warns))
+
+
 def execute_batch(sel, params):
     month, year, opts, budget = params["month"], params["year"], params["opts"], params["ai_budget"]
     n = len(sel)
@@ -542,11 +554,11 @@ def execute_batch(sel, params):
     if n == 1:
         c = sel[0]
         with st.status(f"Procesando {c} - {MESES[month]} {year}...", expanded=True) as status:
-            rc, filepath, drive_url, prop_path = run_report(main_cmd(c, month, year, *opts), st.empty(), env=env_for(0))
+            rc, filepath, drive_url, prop_path, warns = run_report(main_cmd(c, month, year, *opts), st.empty(), env=env_for(0))
             if rc == 0:
                 status.update(label="Informe generado", state="complete")
                 st.session_state["last_report"] = {"client": c, "month": MESES[month], "year": year, "filepath": filepath,
-                                                   "drive_url": drive_url, "propuestas": prop_path}
+                                                   "drive_url": drive_url, "propuestas": prop_path, "warns": warns}
             else:
                 status.update(label="Error al generar", state="error")
                 st.error("Revisa el registro.")
@@ -557,20 +569,22 @@ def execute_batch(sel, params):
     for i, c in enumerate(sel):
         prog.progress(i / n, text=f"Generando {c} ({i+1}/{n})...")
         with st.status(f"{c}", expanded=False) as status:
-            rc, filepath, drive_url, prop_path = run_report(main_cmd(c, month, year, *opts), st.empty(), tail=8, env=env_for(i))
+            rc, filepath, drive_url, prop_path, warns = run_report(main_cmd(c, month, year, *opts), st.empty(), tail=8, env=env_for(i))
             status.update(label=f"{c} · {'listo' if rc == 0 else 'error'}", state="complete" if rc == 0 else "error")
-        results.append((c, rc == 0, filepath, drive_url))
+        results.append((c, rc == 0, filepath, drive_url, warns))
         if prop_path:
             props.append(prop_path)
     prog.progress(1.0, text="Completado")
-    ok = sum(1 for _, r, _, _ in results if r)
+    ok = sum(1 for _, r, _, _, _ in results if r)
     drive_msg = " y subidos a Drive" if params["upload_drive"] else ""
     (st.success if ok == n else st.warning)(f"{ok}/{n} informes generados{drive_msg}.")
-    for c, r, fp, du in results:
+    for c, r, fp, du, ws in results:
         link = f" · [Abrir en Drive]({du})" if du else ""
         fname = f" · `{os.path.basename(fp)}`" if fp else ""
-        st.markdown(f"{'✅' if r else '❌'} **{c}**{fname}{link}")
-    _dirs = {os.path.dirname(fp) for _, r, fp, _ in results if r and fp}
+        icon = "❌" if not r else ("⚠️" if ws else "✅")
+        st.markdown(f"{icon} **{c}**{fname}{link}")
+        show_warns(ws)
+    _dirs = {os.path.dirname(fp) for _, r, fp, _, _ in results if r and fp}
     if len(_dirs) == 1 and st.button("Abrir carpeta de informes", use_container_width=True, key="open_batch_dir"):
         subprocess.run(["open", _dirs.pop()])
     if props:
@@ -708,6 +722,7 @@ with tab1:
         fname = os.path.basename(report["filepath"]) if report["filepath"] else ""
         drive_html = f' · <a href="{report["drive_url"]}" target="_blank" style="color:var(--green);text-decoration:none;">Abrir en Drive</a>' if report.get("drive_url") else ""
         st.markdown(f'''<div class="result"><div class="result-tx"><p class="result-t">Informe listo · {report["client"]}</p><p class="result-s">{report["month"]} {report["year"]} · {fname}{drive_html}</p></div></div>''', unsafe_allow_html=True)
+        show_warns(report.get("warns"))
         if report["filepath"] and os.path.exists(report["filepath"]):
             pdf_path = report["filepath"].rsplit(".", 1)[0] + ".pdf"
             has_pdf = os.path.exists(pdf_path)

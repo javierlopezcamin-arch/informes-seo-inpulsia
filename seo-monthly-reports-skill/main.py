@@ -171,11 +171,13 @@ def main():
     print(f"\n📈 Extrayendo mes anterior ({MESES.get(pm, pm)} {py}) para comparar...")
     try:
         ga4_prev = extract_ga4_data(ga4_id, pm, py)
-    except Exception:
+    except Exception as e:
+        print(f"  ⚠️  GA4 mes anterior: {type(e).__name__}: {str(e)[:120]} — el informe sale sin comparativa de tráfico")
         ga4_prev = {}
     try:
         sc_prev = extract_search_console_data(sc_url, pm, py)
-    except Exception:
+    except Exception as e:
+        print(f"  ⚠️  Search Console mes anterior: {type(e).__name__}: {str(e)[:120]} — el informe sale sin comparativa de búsqueda")
         sc_prev = {}
 
     # ── 2b'. Google Ads (opcional; un fallo no cancela el informe) ──
@@ -201,7 +203,8 @@ def main():
                 else:
                     try:
                         ads_prev = extract_google_ads_data(ads_id, pm, py)
-                    except Exception:
+                    except Exception as e:
+                        print(f"  ⚠️  Google Ads mes anterior: {friendly_error(e)} — sin comparativa de Ads")
                         ads_prev = {}
             except Exception as e:
                 ads_data = {}

@@ -54,7 +54,8 @@ def _fetch(url: str, path: str):
             with open(path, 'wb') as f:
                 f.write(response.read())
         return path
-    except Exception:
+    except Exception as e:
+        print(f"  ⚠️  Imagen no descargada ({url[:80]}): {type(e).__name__} — la diapositiva sale sin ella")
         return None
 
 
@@ -87,8 +88,10 @@ def _svg_to_png(svg_path: str):
             if os.path.exists(ql_out):
                 os.replace(ql_out, png_path)
             else:
+                print(f"  ⚠️  Logo SVG no convertido ({os.path.basename(svg_path)}) — sale sin logo")
                 return None
-        except Exception:
+        except Exception as e:
+            print(f"  ⚠️  Logo SVG no convertido ({os.path.basename(svg_path)}): {type(e).__name__} — sale sin logo")
             return None
     # recorta bordes transparentes (qlmanage rellena a un cuadrado)
     try:
@@ -1149,7 +1152,7 @@ def convert_to_pdf(pptx_path: str) -> str | None:
     import subprocess, shutil
     soffice = shutil.which("soffice")
     if not soffice:
-        print("  ℹ️  PDF: LibreOffice no encontrado (instalar con: brew install --cask libreoffice)")
+        print("  ⚠️  PDF no generado: falta LibreOffice (instalar con: brew install --cask libreoffice)")
         return None
     out_dir = os.path.dirname(pptx_path)
     try:

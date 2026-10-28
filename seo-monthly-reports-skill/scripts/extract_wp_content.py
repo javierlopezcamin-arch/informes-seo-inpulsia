@@ -89,8 +89,8 @@ def extract_wp_content(sc_url: str) -> dict:
         data["posts"] = _rest(base, "posts")
         try:
             data["pages"] = _rest(base, "pages")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  ℹ️  Web: no se pudieron leer las páginas ({type(e).__name__}); solo posts")
         data["source"] = "rest"
     except Exception as e:
         try:

@@ -243,6 +243,6 @@ def sanity_check(client: str, month: int, year: int) -> list:
                 issues.append(("warn", f"Impresiones {imps} vs {pi} en {MESES.get(pm, pm)}: caída de más del 90%"))
             if ps >= 30 and sessions < ps * 0.1 and sessions > 0:
                 issues.append(("warn", f"Sesiones {sessions} vs {ps} en {MESES.get(pm, pm)}: caída de más del 90%"))
-        except Exception:
-            pass
+        except Exception as e:
+            issues.append(("warn", f"No se pudo comparar con {MESES.get(pm, pm)}: {type(e).__name__}"))
     return issues

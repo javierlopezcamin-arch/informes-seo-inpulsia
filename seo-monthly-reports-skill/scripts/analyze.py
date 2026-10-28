@@ -6,7 +6,7 @@ Interpreta datos de GA4 y Search Console, genera narrativas en español
 
 from typing import Dict
 from datetime import datetime
-from utils import MESES, pct_delta, fmt_int, fmt_dec, fmt_pct
+from utils import MESES, NBSP, pct_delta, abs_delta, fmt_int, fmt_dec, fmt_pct
 
 AI_TIMEOUT_MS = 90_000
 # Keywords sin ruido en «Top keywords» y «Oportunidades»
@@ -57,6 +57,8 @@ class SEOAnalyzer:
             'd_users': pct_delta(users, prev.get('total_users', 0)),
             'd_sessions': pct_delta(sessions, prev.get('sessions', 0)),
             'd_pageviews': pct_delta(pvs, prev.get('pageviews', 0)),
+            # rebote: diferencia en puntos porcentuales (bajar es mejorar)
+            'd_bounce': abs_delta(bounce, prev.get('bounce_rate', 0), 1, f"{NBSP}pp"),
         }
 
     # ── Search Console ───────────────────────────────────────
@@ -86,6 +88,8 @@ class SEOAnalyzer:
             'd_impressions': pct_delta(imp, prev.get('impressions', 0)),
             'd_clicks': pct_delta(clicks, prev.get('clicks', 0)),
             'd_ctr': pct_delta(ctr, prev.get('ctr', 0)),
+            # posición: diferencia en posiciones (bajar es mejorar)
+            'd_position': abs_delta(pos, prev.get('position', 0), 1, f"{NBSP}pos."),
         }
 
     # ── Keywords ─────────────────────────────────────────────
@@ -582,8 +586,8 @@ class SEOAnalyzer:
             "recommendations: 4 acciones concretas y priorizadas para este cliente. "
             "anomalies: hasta 3 cambios relevantes (subidas o caídas fuertes); usa [] si no hay.\n\n"
             f"DATOS:\nMes: {self.month_name} {self.year}\n"
-            f"Usuarios: {fmt_int(t['users'])} ({t.get('d_users', '—')}), Sesiones: {fmt_int(t['sessions'])} ({t.get('d_sessions', '—')}), Rebote: {fmt_pct(t['bounce_rate'])}\n"
-            f"Impresiones: {fmt_int(sc['impressions'])} ({sc.get('d_impressions', '—')}), Clics: {fmt_int(sc['clicks'])} ({sc.get('d_clicks', '—')}), CTR: {fmt_pct(sc['ctr'], 2)}, Posición: {fmt_dec(sc['position'])}\n"
+            f"Usuarios: {fmt_int(t['users'])} ({t.get('d_users', '—')}), Sesiones: {fmt_int(t['sessions'])} ({t.get('d_sessions', '—')}), Rebote: {fmt_pct(t['bounce_rate'])} ({t.get('d_bounce', '—')})\n"
+            f"Impresiones: {fmt_int(sc['impressions'])} ({sc.get('d_impressions', '—')}), Clics: {fmt_int(sc['clicks'])} ({sc.get('d_clicks', '—')}), CTR: {fmt_pct(sc['ctr'], 2)}, Posición: {fmt_dec(sc['position'])} ({sc.get('d_position', '—')})\n"
             f"Top keywords: {top_kw}\nSuben: {gained}\nBajan: {lost}\nOportunidades pág.2: {opp_list}"
             f"{self._insights_prompt()}"
         )

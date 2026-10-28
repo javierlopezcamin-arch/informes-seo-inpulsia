@@ -162,11 +162,13 @@ def _logo_is_light(path: str) -> bool:
         return False
 
 
-def _delta_color(delta: str) -> RGBColor:
+def _delta_color(delta: str, lower_better: bool = False) -> RGBColor:
+    """Verde si mejora, red si empeora. En rebote y posición bajar es mejorar."""
+    up, down = (RED, GREEN) if lower_better else (GREEN, RED)
     if delta.startswith("▲"):
-        return GREEN
+        return up
     if delta.startswith("▼"):
-        return RED
+        return down
     return MUTED
 
 
@@ -404,7 +406,7 @@ def add_kpi_slide(prs, title: str, narrative: str, kpis: list, section: str, sec
     for i, kpi in enumerate(kpis):
         x = margin + i * (card_w + gap)
         delta = kpi.get("delta", "")
-        dcol = _delta_color(delta)
+        dcol = _delta_color(delta, kpi.get("lower_better", False))
 
         # Card navy
         card = slide.shapes.add_shape(1, Inches(x), Inches(card_y), Inches(card_w), Inches(card_h))
@@ -1536,7 +1538,7 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
             {"label": "Usuarios",       "value": fmt_int(traffic['users']),            "delta": traffic.get('d_users', '')},
             {"label": "Sesiones",       "value": fmt_int(traffic['sessions']),         "delta": traffic.get('d_sessions', '')},
             {"label": "Páginas vistas", "value": fmt_int(traffic.get('pageviews', 0)), "delta": traffic.get('d_pageviews', '')},
-            {"label": "Tasa de rebote", "value": fmt_pct(traffic['bounce_rate']),      "delta": ""},
+            {"label": "Tasa de rebote", "value": fmt_pct(traffic['bounce_rate']),      "delta": traffic.get('d_bounce', ''), "lower_better": True},
         ], s_label, s_num)
         if include_notes and insights.get('traffic'):
             _add_insight_box(prs.slides[-1], insights['traffic'])
@@ -1600,7 +1602,7 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
             {"label": "Impresiones",   "value": fmt_int(sc['impressions']), "delta": sc.get('d_impressions', '')},
             {"label": "Clics",         "value": fmt_int(sc['clicks']),      "delta": sc.get('d_clicks', '')},
             {"label": "CTR",           "value": fmt_pct(sc['ctr'], 2),      "delta": sc.get('d_ctr', '')},
-            {"label": "Posición media","value": fmt_dec(sc['position']),    "delta": ""},
+            {"label": "Posición media","value": fmt_dec(sc['position']),    "delta": sc.get('d_position', ''), "lower_better": True},
         ], s_label, s_num)
         if include_notes and insights.get('search'):
             _add_insight_box(prs.slides[-1], insights['search'])

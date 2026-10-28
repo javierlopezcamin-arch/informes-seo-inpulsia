@@ -115,6 +115,17 @@ def pct_delta(current: float, previous: float) -> str:
     return f"{arrow} {fmt_pct(diff, 0, sign=True)}"
 
 
+def abs_delta(current: float, previous: float, nd: int = 1, unit: str = "") -> str:
+    """Variación absoluta vs mes anterior, para tasas y posiciones: '▼ -3,2 pp' / '▲ +1,5 pos.'."""
+    if not previous:
+        return "—"
+    diff = current - previous
+    if abs(diff) < 0.5 * 10 ** -nd:
+        return f"≈ 0{unit}"
+    arrow = "▲" if diff > 0 else "▼"
+    return f"{arrow} {fmt_dec(diff, nd, sign=True)}{unit}"
+
+
 def get_output_dir() -> str:
     path = os.path.expanduser(os.getenv("OUTPUT_DIR", "~/Desktop"))
     os.makedirs(path, exist_ok=True)

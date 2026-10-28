@@ -17,9 +17,10 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.dml.color import RGBColor
 
-from utils import MESES, get_output_dir
+from utils import MESES, get_output_dir, fmt_int, fmt_dec, fmt_pct, fmt_text_num
 from generate_pptx import _get_logo, _get_client_logo, convert_to_pdf, _CACHE_DIR  # noqa: F401 (reexport)
 from generate_pptx import ROW_H, ROW_H_MIN, _rows_fit, _paginate_rows, _paginate_text
+from generate_pptx import _ai_slide_data, _decay_slide_data
 
 try:
     import charts as gcharts
@@ -467,9 +468,7 @@ def add_keyword_movements(prs, movements, section):
             _round(s, x0, y, 4.05, 0.5, SOFT, radius=0.18)
             _text(s, x0 + 0.18, y + 0.06, 2.7, 0.38, m.get("query", ""),
                   size=10, color=NAVY, font=F_BODY, wrap=False)
-            delta = m.get("delta", 0)
-            sign = "+" if delta > 0 else ""
-            _text(s, x0 + 2.9, y + 0.06, 1.0, 0.38, f"{sign}{delta}",
+            _text(s, x0 + 2.9, y + 0.06, 1.0, 0.38, fmt_dec(m.get("delta", 0), sign=True),
                   size=11, color=accent, font=F_BODY_SB, align=PP_ALIGN.RIGHT)
             y += 0.58
 
@@ -483,8 +482,8 @@ def add_opportunities(prs, opps_data, section):
     opps = opps_data.get("opportunities", []) if isinstance(opps_data, dict) else opps_data
     if not opps:
         return
-    rows = [[o.get("query", ""), f"{o.get('position', 0):.1f}",
-             f"{o.get('impressions', 0):,}", f"{o.get('gap', 0):.1f}"] for o in opps[:8]]
+    rows = [[o.get("query", ""), fmt_dec(o.get('position', 0)),
+             fmt_int(o.get('impressions', 0)), fmt_dec(o.get('gap', 0))] for o in opps[:8]]
     add_table(prs, "a un paso del top 10", "OPORTUNIDADES",
               ["Keyword", "Posición", "Impresiones", "Gap"], rows,
               "Keywords en la página 2 con mayor potencial de subida.",
@@ -524,7 +523,7 @@ def add_pagespeed(prs, ps_data, section):
     cwv = [("FCP", ps_data.get("fcp", "—")), ("LCP", ps_data.get("lcp", "—")),
            ("CLS", ps_data.get("cls", "—")), ("TBT", ps_data.get("tbt", "—"))]
     _text(s, 0.6, 4.45, 8.7, 0.4,
-          "Core Web Vitals:   " + "    ·    ".join(f"{k}: {v}" for k, v in cwv),
+          "Core Web Vitals:   " + "    ·    ".join(f"{k}: {fmt_text_num(v)}" for k, v in cwv),
           size=10, color=NAVY, font=F_BODY_SB)
 
 
@@ -718,37 +717,6 @@ def add_contact(prs):
 
 
 
-# ── Señales SEO para el cliente (tráfico desde IA y páginas a actualizar) ──
-def _ai_slide_data(analysis):
-    ai = (analysis.get('seo_insights') or {}).get('ai') or {}
-    if not ai.get('sessions'):
-        return None
-    prev = ai.get('prev_sessions')
-    trend = ""
-    if prev:
-        trend = f" ({'+' if ai['sessions'] >= prev else ''}{round((ai['sessions'] - prev) / prev * 100)}% frente al mes anterior)"
-    narrative = (f"{ai['sessions']:,} visitas llegaron este mes desde asistentes de IA{trend}. "
-                 "Significa que estos asistentes enlazan la web en sus respuestas: un canal nuevo que conviene seguir.").replace(",", ".")
-    rows = [[a['assistant'], f"{a['sessions']:,}".replace(",", ".")] for a in ai['sources'][:6]]
-    return rows, narrative
-
-
-def _decay_slide_data(analysis):
-    dec = (analysis.get('seo_insights') or {}).get('decay') or {}
-    pages = dec.get('pages', [])[:6]
-    if not pages:
-        return None
-    from urllib.parse import urlparse
-    def short(u):
-        p = urlparse(u).path or "/"
-        return p if len(p) <= 52 else p[:50] + "…"
-    rows = [[short(p['page']), f"{p['clicks_before']:,}".replace(",", "."), f"{p['clicks_now']:,}".replace(",", "."),
-             f"{p['pct']}%"] for p in pages]
-    narrative = (f"Páginas que han perdido clics desde Google ({dec.get('window', 'últimos 3 meses')}). "
-                 "Actualizar su contenido suele dar resultados antes que crear páginas nuevas.")
-    return rows, narrative
-
-
 # ── Caja de nota IA ──────────────────────────────────────────
 
 def _insight_box(slide, text, y=5.07):
@@ -844,10 +812,10 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
                           "Usuarios e impresiones en los últimos meses.", lbl)
 
         add_kpi(prs, "lo más importante", "TRÁFICO WEB", traffic['narrative'], [
-            {"label": "Usuarios", "value": f"{traffic['users']:,}", "delta": traffic.get('d_users', '')},
-            {"label": "Sesiones", "value": f"{traffic['sessions']:,}", "delta": traffic.get('d_sessions', '')},
-            {"label": "Páginas vistas", "value": f"{traffic.get('pageviews', 0):,}", "delta": traffic.get('d_pageviews', '')},
-            {"label": "Tasa de rebote", "value": f"{traffic['bounce_rate']:.1f}%", "delta": ""},
+            {"label": "Usuarios", "value": fmt_int(traffic['users']), "delta": traffic.get('d_users', '')},
+            {"label": "Sesiones", "value": fmt_int(traffic['sessions']), "delta": traffic.get('d_sessions', '')},
+            {"label": "Páginas vistas", "value": fmt_int(traffic.get('pageviews', 0)), "delta": traffic.get('d_pageviews', '')},
+            {"label": "Tasa de rebote", "value": fmt_pct(traffic['bounce_rate']), "delta": ""},
         ], lbl)
         if include_notes and insights.get('traffic'):
             _insight_box(prs.slides[-1], insights['traffic'])
@@ -891,10 +859,10 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
         lbl = f"{int(num)}. Rendimiento en Google"
 
         add_kpi(prs, "tu visibilidad en google", "RENDIMIENTO EN BÚSQUEDA", sc['narrative'], [
-            {"label": "Impresiones", "value": f"{sc['impressions']:,}", "delta": sc.get('d_impressions', '')},
-            {"label": "Clics", "value": f"{sc['clicks']:,}", "delta": sc.get('d_clicks', '')},
-            {"label": "CTR", "value": f"{sc['ctr']:.2f}%", "delta": sc.get('d_ctr', '')},
-            {"label": "Posición media", "value": f"{sc['position']:.1f}", "delta": ""},
+            {"label": "Impresiones", "value": fmt_int(sc['impressions']), "delta": sc.get('d_impressions', '')},
+            {"label": "Clics", "value": fmt_int(sc['clicks']), "delta": sc.get('d_clicks', '')},
+            {"label": "CTR", "value": fmt_pct(sc['ctr'], 2), "delta": sc.get('d_ctr', '')},
+            {"label": "Posición media", "value": fmt_dec(sc['position']), "delta": ""},
         ], lbl)
         if include_notes and insights.get('search'):
             _insight_box(prs.slides[-1], insights['search'])
@@ -915,8 +883,8 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
             note = insights.get('keywords') if include_notes else None
             add_table(prs, "tus mejores términos", "TOP KEYWORDS",
                       ["Keyword", "Posición", "Impresiones", "Clics", "CTR"],
-                      [[k['query'], f"{k['position']}", f"{k['impressions']:,}",
-                        f"{k['clicks']}", f"{k.get('ctr', 0):.1f}%"] for k in kws],
+                      [[k['query'], fmt_dec(k['position']), fmt_int(k['impressions']),
+                        fmt_int(k['clicks']), fmt_pct(k.get('ctr', 0))] for k in kws],
                       kw['narrative'], lbl, col_widths=[4, 1.2, 1.5, 1, 1], note=note)
 
         add_keyword_movements(prs, kw_moves, lbl)
@@ -926,7 +894,7 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
         if pages_ga4:
             add_table(prs, "las páginas que funcionan", "PÁGINAS MÁS VISITADAS",
                       ["Página", "Visitas", "% del total"],
-                      [[pg['path'], f"{pg['views']:,}", f"{pg.get('percentage', 0):.1f}%"]
+                      [[pg['path'], fmt_int(pg['views']), fmt_pct(pg.get('percentage', 0))]
                        for pg in pages_ga4[:9]],
                       "Páginas con más visitas durante el mes (GA4).",
                       lbl, col_widths=[6, 1.5, 1.5])
@@ -937,13 +905,13 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
         lbl = f"{int(num)}. Google Ads"
         cur = ads['currency']
         show_conv = ads.get('show_conversions', False)
-        last_kpi = ({"label": "Conversiones", "value": f"{ads['conversions']:,.0f}", "delta": ads.get('d_conversions', '')}
+        last_kpi = ({"label": "Conversiones", "value": fmt_int(ads['conversions']), "delta": ads.get('d_conversions', '')}
                     if show_conv else
-                    {"label": "CPC medio", "value": f"{ads['avg_cpc']:.2f} {cur}", "delta": ads.get('d_cpc', '')})
+                    {"label": "CPC medio", "value": f"{fmt_dec(ads['avg_cpc'], 2)} {cur}", "delta": ads.get('d_cpc', '')})
         add_kpi(prs, "tu inversión publicitaria", "GOOGLE ADS", ads['narrative'], [
             {"label": "Inversión", "value": ads['cost_label'], "delta": ""},
-            {"label": "Impresiones", "value": f"{ads['impressions']:,}", "delta": ads.get('d_impressions', '')},
-            {"label": "Clics", "value": f"{ads['clicks']:,}", "delta": ads.get('d_clicks', '')},
+            {"label": "Impresiones", "value": fmt_int(ads['impressions']), "delta": ads.get('d_impressions', '')},
+            {"label": "Clics", "value": fmt_int(ads['clicks']), "delta": ads.get('d_clicks', '')},
             last_kpi,
         ], lbl)
         if include_notes and ads.get('insight'):
@@ -952,18 +920,18 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
             _name = lambda c: (c['name'][:42] + '…') if len(c['name']) > 42 else c['name']
             if show_conv:
                 cols = ["Campaña", "Inversión", "Clics", "Conv.", "CPA"]
-                rows = [[_name(c), f"{c['cost']:,.2f} {cur}", f"{c['clicks']:,}", f"{c['conversions']:,.0f}",
-                         f"{c['cpa']:.2f} {cur}" if c.get('cpa') else "—"] for c in ads['campaigns'][:8]]
+                rows = [[_name(c), f"{fmt_dec(c['cost'], 2)} {cur}", fmt_int(c['clicks']), fmt_int(c['conversions']),
+                         f"{fmt_dec(c['cpa'], 2)} {cur}" if c.get('cpa') else "—"] for c in ads['campaigns'][:8]]
             else:
                 cols = ["Campaña", "Inversión", "Impresiones", "Clics", "CPC"]
-                rows = [[_name(c), f"{c['cost']:,.2f} {cur}", f"{c['impressions']:,}", f"{c['clicks']:,}",
-                         f"{c['cpc']:.2f} {cur}"] for c in ads['campaigns'][:8]]
+                rows = [[_name(c), f"{fmt_dec(c['cost'], 2)} {cur}", fmt_int(c['impressions']), fmt_int(c['clicks']),
+                         f"{fmt_dec(c['cpc'], 2)} {cur}"] for c in ads['campaigns'][:8]]
             add_table(prs, "dónde se invierte", "CAMPAÑAS PRINCIPALES", cols, rows,
                       "Campañas con mayor inversión durante el mes.",
                       lbl, col_widths=[3.7, 1.5, 1.1, 1.1, 1.3])
         if show_conv and ads.get('conversions_by_action'):
             add_table(prs, "qué genera resultados", "CONVERSIONES POR TIPO", ["Acción de conversión", "Conversiones"],
-                      [[a['name'], f"{a['conversions']:,.0f}"] for a in ads['conversions_by_action'][:8]],
+                      [[a['name'], fmt_int(a['conversions'])] for a in ads['conversions_by_action'][:8]],
                       f"Coste por conversión del mes: {ads['cpa_label']}.",
                       lbl, col_widths=[6.5, 2.2])
 

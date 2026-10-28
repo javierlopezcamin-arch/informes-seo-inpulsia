@@ -54,15 +54,46 @@ def month_ttl_hours(month: int, year: int) -> int:
     return _TTL_CLOSED_MONTH_HOURS if datetime.now() >= closed_at else _TTL_HOURS
 
 
+# ── Números en formato español: punto de miles, coma decimal ──
+NBSP = " "   # entre la cifra y el % para que no se separen al partir línea
+
+
+def fmt_int(v) -> str:
+    """Entero con punto de miles: 1330 → '1.330'."""
+    return f"{round(v or 0):,}".replace(",", ".")
+
+
+def fmt_dec(v, nd: int = 1, sign: bool = False) -> str:
+    """Decimal con coma y punto de miles: 1.45 → '1,45' · 12345.6 → '12.345,6'.
+    sign=True añade '+' a los positivos ('+0,7')."""
+    s = f"{(v or 0):{'+' if sign else ''},.{nd}f}"
+    return s.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+
+
+def fmt_pct(v, nd: int = 1, sign: bool = False) -> str:
+    """Porcentaje: 1.45 → '1,45 %' (espacio irrompible antes del %)."""
+    return f"{fmt_dec(v, nd, sign)}{NBSP}%"
+
+
+def fmt_text_num(text) -> str:
+    """Texto con cifras en formato inglés de una API ('4.7 s', '1,230 ms') → '4,7 s', '1.230 ms'."""
+    return str(text).replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+
+
+def fmt_num(v) -> str:
+    """Cifra de un eje o etiqueta: entera con punto de miles, o con un decimal si lo tiene."""
+    return fmt_int(v) if float(v).is_integer() else fmt_dec(v, 1)
+
+
 def pct_delta(current: float, previous: float) -> str:
-    """Formatea la variación vs mes anterior: '▲ +12%' / '▼ -5%' / '—'."""
+    """Formatea la variación vs mes anterior: '▲ +12 %' / '▼ -5 %' / '—'."""
     if not previous:
         return "—"
     diff = (current - previous) / previous * 100
     if abs(diff) < 0.5:
-        return "≈ 0%"
+        return f"≈ 0{NBSP}%"
     arrow = "▲" if diff > 0 else "▼"
-    return f"{arrow} {diff:+.0f}%"
+    return f"{arrow} {fmt_pct(diff, 0, sign=True)}"
 
 
 def get_output_dir() -> str:

@@ -6,7 +6,7 @@ Interpreta datos de GA4 y Search Console, genera narrativas en español
 
 from typing import Dict
 from datetime import datetime
-from utils import MESES, pct_delta
+from utils import MESES, pct_delta, fmt_int, fmt_dec, fmt_pct
 
 AI_TIMEOUT_MS = 90_000
 
@@ -40,12 +40,12 @@ class SEOAnalyzer:
 
         narrative = (
             f"En el mes de {self.month_name} el volumen de tráfico total del sitio web "
-            f"se sitúa en los {users} usuarios con {sessions} sesiones. "
+            f"se sitúa en los {fmt_int(users)} usuarios con {fmt_int(sessions)} sesiones. "
         )
         if dur > 30:
-            narrative += f"El tiempo de interacción medio aumenta hasta los {dur:.0f} segundos, lo que indica un tráfico más cualificado. "
+            narrative += f"El tiempo de interacción medio aumenta hasta los {fmt_int(dur)} segundos, lo que indica un tráfico más cualificado. "
         else:
-            narrative += f"El tiempo de interacción medio se sitúa en {dur:.0f} segundos. "
+            narrative += f"El tiempo de interacción medio se sitúa en {fmt_int(dur)} segundos. "
         if bounce > 50:
             narrative += "La tasa de rebote es elevada, sugiriendo oportunidades de mejora en la experiencia de usuario."
 
@@ -68,15 +68,15 @@ class SEOAnalyzer:
 
         narrative = (
             f"Durante {self.month_name}, el sitio ha recibido un total de "
-            f"{imp:,} impresiones en Google y {clicks} clics, "
-            f"lo que nos da un CTR del {ctr:.2f}%. "
+            f"{fmt_int(imp)} impresiones en Google y {fmt_int(clicks)} clics, "
+            f"lo que nos da un CTR del {fmt_pct(ctr, 2)}. "
         )
         if pos < 5:
-            narrative += f"La posición media es excelente ({pos:.1f}), ubicándonos en el Top 5."
+            narrative += f"La posición media es excelente ({fmt_dec(pos)}), ubicándonos en el Top 5."
         elif pos < 10:
-            narrative += f"La posición media de {pos:.1f} nos sitúa dentro del Top-10."
+            narrative += f"La posición media de {fmt_dec(pos)} nos sitúa dentro del Top-10."
         else:
-            narrative += f"La posición media es {pos:.1f}, sugiriendo oportunidades de mejora."
+            narrative += f"La posición media es {fmt_dec(pos)}, sugiriendo oportunidades de mejora."
 
         return {
             'impressions': imp, 'clicks': clicks, 'ctr': ctr,
@@ -96,7 +96,7 @@ class SEOAnalyzer:
         high_pos = sum(1 for kw in keywords if kw['position'] < 10)
         narrative = (
             "Los keywords con mejor rendimiento son: "
-            + ", ".join(f"'{kw['query']}' (pos. {kw['position']})" for kw in top3)
+            + ", ".join(f"'{kw['query']}' (pos. {fmt_dec(kw['position'])})" for kw in top3)
             + f". Contamos con {high_pos} keywords en la primera página."
         )
 
@@ -130,9 +130,9 @@ class SEOAnalyzer:
             "cortas (máximo 50 palabras en total), en español, tono siempre positivo y constructivo. "
             "Destaca logros, oportunidades y avances. Nunca uses palabras negativas. "
             "Cada frase en una línea separada, sin numeración ni viñetas.\n\n"
-            f"Usuarios: {t['users']} ({t.get('d_users','—')}), Sesiones: {t['sessions']}\n"
-            f"Impresiones: {sc['impressions']} ({sc.get('d_impressions','—')}), Clics: {sc['clicks']}\n"
-            f"CTR: {sc['ctr']:.2f}%, Posición media: {sc['position']:.1f}"
+            f"Usuarios: {fmt_int(t['users'])} ({t.get('d_users','—')}), Sesiones: {fmt_int(t['sessions'])}\n"
+            f"Impresiones: {fmt_int(sc['impressions'])} ({sc.get('d_impressions','—')}), Clics: {fmt_int(sc['clicks'])}\n"
+            f"CTR: {fmt_pct(sc['ctr'], 2)}, Posición media: {fmt_dec(sc['position'])}"
         )
         try:
             client = genai.Client(api_key=key)
@@ -162,17 +162,17 @@ class SEOAnalyzer:
         t = self.analyze_traffic()
         sc = self.analyze_search_console()
         kw = self.analyze_keywords()
-        top_kw = ", ".join(f"{k['query']} (pos {k['position']})" for k in kw.get('top_keywords', [])[:5])
+        top_kw = ", ".join(f"{k['query']} (pos {fmt_dec(k['position'])})" for k in kw.get('top_keywords', [])[:5])
 
         datos = (
             f"Mes: {self.month_name} {self.year}\n"
-            f"Usuarios: {t['users']} ({t.get('d_users', '—')} vs mes anterior)\n"
-            f"Sesiones: {t['sessions']} ({t.get('d_sessions', '—')})\n"
-            f"Tasa de rebote: {t['bounce_rate']:.1f}%\n"
-            f"Impresiones: {sc['impressions']} ({sc.get('d_impressions', '—')})\n"
-            f"Clics: {sc['clicks']} ({sc.get('d_clicks', '—')})\n"
-            f"CTR: {sc['ctr']:.2f}% ({sc.get('d_ctr', '—')})\n"
-            f"Posición media: {sc['position']:.1f}\n"
+            f"Usuarios: {fmt_int(t['users'])} ({t.get('d_users', '—')} vs mes anterior)\n"
+            f"Sesiones: {fmt_int(t['sessions'])} ({t.get('d_sessions', '—')})\n"
+            f"Tasa de rebote: {fmt_pct(t['bounce_rate'])}\n"
+            f"Impresiones: {fmt_int(sc['impressions'])} ({sc.get('d_impressions', '—')})\n"
+            f"Clics: {fmt_int(sc['clicks'])} ({sc.get('d_clicks', '—')})\n"
+            f"CTR: {fmt_pct(sc['ctr'], 2)} ({sc.get('d_ctr', '—')})\n"
+            f"Posición media: {fmt_dec(sc['position'])}\n"
             f"Top keywords: {top_kw or 'sin datos'}"
         )
         return (
@@ -244,9 +244,9 @@ class SEOAnalyzer:
 
         lines = [f"{self.month_name.capitalize()} ha sido un mes con el siguiente desempeño SEO:\n"]
 
-        lines.append(f"{'✓' if t['users'] > 50 else '•'} Tráfico web: {t['users']} usuarios, {t['sessions']} sesiones.")
-        lines.append(f"{'✓' if sc['position'] < 10 else '•'} Posición media en búsqueda: {sc['position']:.1f}.")
-        lines.append(f"{'✓' if sc['ctr'] > 2 else '•'} CTR: {sc['ctr']:.2f}%.")
+        lines.append(f"{'✓' if t['users'] > 50 else '•'} Tráfico web: {fmt_int(t['users'])} usuarios, {fmt_int(t['sessions'])} sesiones.")
+        lines.append(f"{'✓' if sc['position'] < 10 else '•'} Posición media en búsqueda: {fmt_dec(sc['position'])}.")
+        lines.append(f"{'✓' if sc['ctr'] > 2 else '•'} CTR: {fmt_pct(sc['ctr'], 2)}.")
 
         lines.append("\n📌 Próximos pasos:")
         lines.append("• Continuar creando contenido de calidad")
@@ -264,12 +264,12 @@ class SEOAnalyzer:
         main_channel = channels[0]
         narrative = (
             f"El canal principal de adquisición de tráfico es {main_channel['channel']}, "
-            f"que representa el {main_channel['percentage']}% del total con {main_channel['sessions']:,} sesiones."
+            f"que representa el {fmt_pct(main_channel['percentage'])} del total con {fmt_int(main_channel['sessions'])} sesiones."
         )
         
         if len(channels) > 1:
             sec_channel = channels[1]
-            narrative += f" En segundo lugar se sitúa {sec_channel['channel']} con un {sec_channel['percentage']}%."
+            narrative += f" En segundo lugar se sitúa {sec_channel['channel']} con un {fmt_pct(sec_channel['percentage'])}."
             
         return {
             'channels': channels,
@@ -288,7 +288,7 @@ class SEOAnalyzer:
         dominant_pct = dev_pct[dominant_device]
         
         narrative = (
-            f"El dispositivo más utilizado para acceder a la web es {dominant_device} ({dominant_pct}%), "
+            f"El dispositivo más utilizado para acceder a la web es {dominant_device} ({fmt_pct(dominant_pct)}), "
             f"lo que destaca la importancia de una buena experiencia de usuario en este formato."
         )
         return {
@@ -314,7 +314,7 @@ class SEOAnalyzer:
 
         narrative = (
             f"El día con mayor volumen de clics orgánicos fue el {d_formatted} "
-            f"con {max_clicks_day['clicks']} clics y {max_clicks_day['impressions']:,} impresiones."
+            f"con {fmt_int(max_clicks_day['clicks'])} clics y {fmt_int(max_clicks_day['impressions'])} impresiones."
         )
         return {
             'daily': daily,
@@ -408,9 +408,9 @@ class SEOAnalyzer:
             "oportunidades y avances. Nunca uses palabras negativas. "
             "Responde SOLO con JSON válido, sin markdown:\n"
             '{"traffic":"...","search":"...","keywords":"...","technical":"..."}\n\n'
-            f"Usuarios: {t['users']} ({t.get('d_users','—')}), Sesiones: {t['sessions']} ({t.get('d_sessions','—')})\n"
-            f"Impresiones: {sc['impressions']} ({sc.get('d_impressions','—')}), Clics: {sc['clicks']}, CTR: {sc['ctr']:.2f}%\n"
-            f"Posición media: {sc['position']:.1f}\n"
+            f"Usuarios: {fmt_int(t['users'])} ({t.get('d_users','—')}), Sesiones: {fmt_int(t['sessions'])} ({t.get('d_sessions','—')})\n"
+            f"Impresiones: {fmt_int(sc['impressions'])} ({sc.get('d_impressions','—')}), Clics: {fmt_int(sc['clicks'])}, CTR: {fmt_pct(sc['ctr'], 2)}\n"
+            f"Posición media: {fmt_dec(sc['position'])}\n"
             f"Top keywords: {', '.join(k['query'] for k in kw.get('top_keywords',[])[:5]) or 'sin datos'}"
         )
         try:
@@ -441,17 +441,17 @@ class SEOAnalyzer:
         show_conv = a.get('conversion_state', 'ok' if conv > 0 else 'sin_datos') == 'ok' and conv > 0
 
         def money(v):
-            return f"{v:,.0f} {cur}" if v >= 100 else f"{v:,.2f} {cur}"
+            return f"{fmt_int(v)} {cur}" if v >= 100 else f"{fmt_dec(v, 2)} {cur}"
 
         narrative = (
-            f"En {self.month_name} se invirtieron {money(cost)} en Google Ads, con {imps:,} impresiones "
-            f"y {clicks:,} clics (CTR {a.get('ctr', 0):.2f}%, CPC medio {a.get('avg_cpc', 0):.2f} {cur}). "
+            f"En {self.month_name} se invirtieron {money(cost)} en Google Ads, con {fmt_int(imps)} impresiones "
+            f"y {fmt_int(clicks)} clics (CTR {fmt_pct(a.get('ctr', 0), 2)}, CPC medio {fmt_dec(a.get('avg_cpc', 0), 2)} {cur}). "
         )
         if show_conv:
             cpa = cost / conv
-            narrative += f"Se registraron {conv:,.0f} conversiones, a {money(cpa)} por conversión."
+            narrative += f"Se registraron {fmt_int(conv)} conversiones, a {money(cpa)} por conversión."
             if a.get('conv_value'):
-                narrative += f" El valor de conversión asciende a {money(a['conv_value'])} (ROAS {a['conv_value'] / cost:.1f}x)." if cost else ""
+                narrative += f" El valor de conversión asciende a {money(a['conv_value'])} (ROAS {fmt_dec(a['conv_value'] / cost)}x)." if cost else ""
 
         d_clicks = pct_delta(clicks, p.get('clicks', 0)) if p else ""
         d_imps = pct_delta(imps, p.get('impressions', 0)) if p else ""
@@ -546,8 +546,8 @@ class SEOAnalyzer:
         moves = self.analyze_keyword_movements()
         opps = self.analyze_opportunities()
         top_kw = ", ".join(k['query'] for k in kw.get('top_keywords', [])[:6]) or "sin datos"
-        gained = ", ".join(f"{m['query']} ({m['delta']:+.0f})" for m in moves.get('gained', [])[:4]) or "—"
-        lost = ", ".join(f"{m['query']} ({m['delta']:+.0f})" for m in moves.get('lost', [])[:4]) or "—"
+        gained = ", ".join(f"{m['query']} ({fmt_dec(m['delta'], sign=True)})" for m in moves.get('gained', [])[:4]) or "—"
+        lost = ", ".join(f"{m['query']} ({fmt_dec(m['delta'], sign=True)})" for m in moves.get('lost', [])[:4]) or "—"
         _opp = opps.get('opportunities', []) if isinstance(opps, dict) else opps
         opp_list = ", ".join(o['query'] for o in (_opp or [])[:5]) or "—"
 
@@ -563,13 +563,14 @@ class SEOAnalyzer:
             '"conclusions":"párrafo breve seguido de 4 viñetas separadas por saltos de línea",'
             '"insights":{"traffic":"...","search":"...","keywords":"...","technical":"..."},'
             '"recommendations":["r1","r2","r3","r4"],"anomalies":["a1","a2"]}\n'
-            f"{tono} No inventes datos. Español.\n"
+            f"{tono} No inventes datos. Español. Escribe las cifras en formato español: "
+            "punto de miles y coma decimal (1.330 usuarios · CTR 1,45 % · posición 9,6).\n"
             "executive_summary: 3 frases. insights: 1 frase por sección (máx 20 palabras). "
             "recommendations: 4 acciones concretas y priorizadas para este cliente. "
             "anomalies: hasta 3 cambios relevantes (subidas o caídas fuertes); usa [] si no hay.\n\n"
             f"DATOS:\nMes: {self.month_name} {self.year}\n"
-            f"Usuarios: {t['users']} ({t.get('d_users', '—')}), Sesiones: {t['sessions']} ({t.get('d_sessions', '—')}), Rebote: {t['bounce_rate']:.1f}%\n"
-            f"Impresiones: {sc['impressions']} ({sc.get('d_impressions', '—')}), Clics: {sc['clicks']} ({sc.get('d_clicks', '—')}), CTR: {sc['ctr']:.2f}%, Posición: {sc['position']:.1f}\n"
+            f"Usuarios: {fmt_int(t['users'])} ({t.get('d_users', '—')}), Sesiones: {fmt_int(t['sessions'])} ({t.get('d_sessions', '—')}), Rebote: {fmt_pct(t['bounce_rate'])}\n"
+            f"Impresiones: {fmt_int(sc['impressions'])} ({sc.get('d_impressions', '—')}), Clics: {fmt_int(sc['clicks'])} ({sc.get('d_clicks', '—')}), CTR: {fmt_pct(sc['ctr'], 2)}, Posición: {fmt_dec(sc['position'])}\n"
             f"Top keywords: {top_kw}\nSuben: {gained}\nBajan: {lost}\nOportunidades pág.2: {opp_list}"
             f"{self._insights_prompt()}"
         )
@@ -587,10 +588,10 @@ class SEOAnalyzer:
         dec = (self.insights.get('decay') or {}).get('pages', [])
         if dec:
             lines.append("Páginas que pierden clics (3 meses vs 3 anteriores): " + ", ".join(
-                f"{p['page'].split('://')[-1][-60:]} ({p['pct']}%)" for p in dec[:4]))
+                f"{p['page'].split('://')[-1][-60:]} ({fmt_pct(p['pct'], 0)})" for p in dec[:4]))
         ai = self.insights.get('ai') or {}
         if ai.get('sessions'):
-            lines.append(f"Visitas desde asistentes de IA: {ai['sessions']} (mes anterior: {ai.get('prev_sessions', '—')})")
+            lines.append(f"Visitas desde asistentes de IA: {fmt_int(ai['sessions'])} (mes anterior: {ai.get('prev_sessions', '—')})")
         return ("\n" + "\n".join(lines)) if lines else ""
 
     # ── Análisis completo ────────────────────────────────────

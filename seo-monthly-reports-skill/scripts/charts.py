@@ -11,7 +11,7 @@ try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from matplotlib.ticker import MaxNLocator
+    from matplotlib.ticker import MaxNLocator, FuncFormatter
     HAS_MPL = True
 except ImportError:
     HAS_MPL = False
@@ -25,6 +25,8 @@ G_RED    = "#EA4335"
 G_GRAY   = "#5F6368"
 BG       = "#FFFFFF"
 GRID     = "#E8EAED"
+
+from utils import fmt_int, fmt_num, fmt_pct
 
 DONUT_COLORS = [G_BLUE, G_GREEN, G_YELLOW, G_RED, G_PURPLE, "#00ACC2", "#FF7043", "#9E9E9E"]
 
@@ -44,6 +46,12 @@ def _base_ax(ax):
     ax.grid(axis="y", color=GRID, linewidth=0.8)
     ax.set_axisbelow(True)
     ax.tick_params(colors=G_GRAY, labelsize=9, length=0)
+    _es_ticks(ax)
+
+
+def _es_ticks(ax):
+    """Cifras del eje Y con punto de miles y coma decimal."""
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: fmt_num(v)))
 
 
 def gsc_performance_line(daily: list) -> str | None:
@@ -68,6 +76,7 @@ def gsc_performance_line(daily: list) -> str | None:
     ax2.fill_between(days, imps, alpha=0.06, color=G_PURPLE)
     ax2.set_ylabel("Impresiones", color=G_PURPLE, fontsize=10, fontweight="bold")
     ax2.tick_params(axis="y", labelcolor=G_PURPLE, labelsize=9, length=0)
+    _es_ticks(ax2)
     for spine in ("top", "left", "right", "bottom"):
         ax2.spines[spine].set_visible(False)
 
@@ -113,10 +122,10 @@ def channels_donut(channels: list) -> str | None:
         values, colors=DONUT_COLORS[:len(values)], startangle=90,
         counterclock=False, wedgeprops=dict(width=0.42, edgecolor=BG, linewidth=2),
     )
-    ax.text(0, 0.08, f"{total:,}", ha="center", fontsize=20, fontweight="bold", color="#202124")
+    ax.text(0, 0.08, fmt_int(total), ha="center", fontsize=20, fontweight="bold", color="#202124")
     ax.text(0, -0.18, "sesiones", ha="center", fontsize=10, color=G_GRAY)
 
-    legend_labels = [f"{l}  ·  {v/total*100:.1f}%" for l, v in zip(labels, values)]
+    legend_labels = [f"{l}  ·  {fmt_pct(v / total * 100)}" for l, v in zip(labels, values)]
     ax.legend(wedges, legend_labels, loc="center left", bbox_to_anchor=(1.02, 0.5),
               frameon=False, fontsize=10)
     return _save(fig)
@@ -135,7 +144,7 @@ def hbar(items: list, label_key: str, value_key: str, color: str = G_BLUE) -> st
         ax.spines[spine].set_visible(False)
     ax.spines["left"].set_color(GRID)
     bars = ax.barh(labels, values, color=color, height=0.55)
-    ax.bar_label(bars, padding=4, fontsize=9, color="#202124", fmt="{:,.0f}")
+    ax.bar_label(bars, padding=4, fontsize=9, color="#202124", fmt=fmt_int)
     ax.tick_params(colors=G_GRAY, labelsize=10, length=0)
     ax.xaxis.set_visible(False)
     ax.margins(x=0.12)
@@ -156,8 +165,8 @@ def mom_grouped_bars(metrics: list, month_curr: str, month_prev: str) -> str | N
     _base_ax(ax)
     bars1 = ax.bar([i - w/2 for i in x], curr, w, color="#C6FF2A", label=month_curr, zorder=3)
     bars2 = ax.bar([i + w/2 for i in x], prev, w, color="#9E9E9E", label=month_prev, zorder=3)
-    ax.bar_label(bars1, padding=3, fontsize=9, fontweight="bold", color="#202124", fmt="{:,.0f}")
-    ax.bar_label(bars2, padding=3, fontsize=9, color=G_GRAY, fmt="{:,.0f}")
+    ax.bar_label(bars1, padding=3, fontsize=9, fontweight="bold", color="#202124", fmt=fmt_int)
+    ax.bar_label(bars2, padding=3, fontsize=9, color=G_GRAY, fmt=fmt_int)
     ax.set_xticks(list(x))
     ax.set_xticklabels(labels, fontsize=11)
     ax.yaxis.set_visible(False)
@@ -189,7 +198,7 @@ def trend_line_6m(historical: list) -> str | None:
     u_rng = (max(users) - min(users)) or 1
     ax1.set_ylim(min(users) - u_rng * 0.45, max(users) + u_rng * 0.40)
     for i, v in enumerate(users):
-        ax1.annotate(f"{v:,}", (i, v), textcoords="offset points", xytext=(0, 11),
+        ax1.annotate(fmt_int(v), (i, v), textcoords="offset points", xytext=(0, 11),
                      ha="center", fontsize=9, fontweight="bold", color=NAVY, zorder=6)
 
     # Impresiones (eje derecho)
@@ -198,10 +207,11 @@ def trend_line_6m(historical: list) -> str | None:
                    markersize=6, linestyle="--", alpha=0.9, zorder=4, label="Impresiones")
     ax2.set_ylabel("Impresiones", fontsize=10, color=G_BLUE)
     ax2.tick_params(axis="y", labelcolor=G_BLUE, labelsize=9, length=0)
+    _es_ticks(ax2)
     i_rng = (max(impressions) - min(impressions)) or 1
     ax2.set_ylim(min(impressions) - i_rng * 0.45, max(impressions) + i_rng * 0.40)
     for i, v in enumerate(impressions):
-        ax2.annotate(f"{v:,}", (i, v), textcoords="offset points", xytext=(0, -16),
+        ax2.annotate(fmt_int(v), (i, v), textcoords="offset points", xytext=(0, -16),
                      ha="center", fontsize=8, color=G_BLUE, zorder=6)
     for spine in ("top", "left", "right"):
         ax2.spines[spine].set_visible(False)
@@ -224,7 +234,7 @@ def metric_bars(data: dict, color: str = G_BLUE) -> str | None:
     fig, ax = plt.subplots(figsize=(10.2, 3.7))
     _base_ax(ax)
     bars = ax.bar(list(data.keys()), list(data.values()), color=color, width=0.5)
-    ax.bar_label(bars, padding=4, fontsize=11, fontweight="bold", color="#202124", fmt="{:,.0f}")
+    ax.bar_label(bars, padding=4, fontsize=11, fontweight="bold", color="#202124", fmt=fmt_int)
     ax.yaxis.set_visible(False)
     ax.grid(False)
     ax.tick_params(labelsize=11)

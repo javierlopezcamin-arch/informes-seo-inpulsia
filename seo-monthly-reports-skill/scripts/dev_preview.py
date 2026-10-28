@@ -42,31 +42,59 @@ ALL_SECTIONS = {"resumen", "destacados", "trafico", "canales", "search", "keywor
 # ── Fixture: datos reales de un mes guardados una vez ────────
 
 def capture(client: str, month: int, year: int, use_ia: bool = True) -> str:
-    """Ejecuta el flujo de main.py hasta el análisis y lo guarda como JSON.
+    """Ejecuta el flujo de main.py hasta el análisis y guarda como JSON sus datos de
+    entrada y la respuesta de la IA, para repetir el análisis sin APIs ni IA.
     No genera PDF, propuestas ni subida a Drive."""
     import main as app_main
+    import analyze
     if not use_ia:
         os.environ["IA_ENABLED"] = "false"
     captured = {}
 
+    def _inputs(ga4_data, sc_data, ga4_prev=None, sc_prev=None, historical=None,
+                notes_level="analitico", **kw):
+        captured["inputs"] = dict(ga4_data=ga4_data, sc_data=sc_data, ga4_prev=ga4_prev, sc_prev=sc_prev,
+                                  historical=historical, notes_level=notes_level, **kw)
+        return _analyze_seo_data(ga4_data, sc_data, ga4_prev, sc_prev, historical, notes_level, **kw)
+
+    def _bundle(self, level="analitico"):
+        captured["bundle"] = _ai_bundle(self, level)
+        return captured["bundle"]
+
     def _grab(analysis, client_name, sections=None, include_notes=True):
-        captured["analysis"] = analysis
+        captured["pagespeed"] = analysis.get("pagespeed", {})
         return ""
 
+    _analyze_seo_data, _ai_bundle = app_main.analyze_seo_data, analyze.SEOAnalyzer.generate_ai_bundle
+    app_main.analyze_seo_data = _inputs
+    analyze.SEOAnalyzer.generate_ai_bundle = _bundle
     app_main.generate_pptx = app_main.generate_pptx_v2 = _grab
     app_main.convert_to_pdf = lambda path: None
     sys.argv = ["main.py", "--client", client, "--month", str(month), "--year", str(year),
                 "--sections", ",".join(sorted(ALL_SECTIONS)), "--no-propuestas"]
     app_main.main()
-    if "analysis" not in captured:
+    if "pagespeed" not in captured:
         sys.exit("❌ No se llegó a generar el análisis (revisa la salida de arriba)")
 
     os.makedirs(_FIXTURES, exist_ok=True)
     path = os.path.join(_FIXTURES, f"{client.lower()}_{year}_{month:02d}.json")
     with open(path, "w", encoding="utf-8") as f:
-        json.dump({"client": client, "analysis": captured["analysis"]}, f, ensure_ascii=False, indent=1)
+        json.dump({"client": client, **captured}, f, ensure_ascii=False, indent=1)
     print(f"\n💾 Fixture guardada: {path}")
     return path
+
+
+def analysis_from(data: dict) -> dict:
+    """Repite el análisis de una fixture con el código actual (la IA devuelve lo guardado)."""
+    from analyze import SEOAnalyzer
+    i = data["inputs"]
+    an = SEOAnalyzer(i["ga4_data"], i["sc_data"], i.get("ga4_prev"), i.get("sc_prev"),
+                     i.get("ads_data"), i.get("ads_prev"), i.get("insights"))
+    an.generate_ai_bundle = lambda level="analitico": data.get("bundle") or {}
+    analysis = an.get_full_analysis(i.get("historical"), i.get("notes_level", "analitico"))
+    if data.get("pagespeed"):
+        analysis["pagespeed"] = data["pagespeed"]
+    return analysis
 
 
 def render(fixture: str, design: str, out_dir: str) -> str:
@@ -80,7 +108,7 @@ def render(fixture: str, design: str, out_dir: str) -> str:
     os.makedirs(out_dir, exist_ok=True)
     os.environ["OUTPUT_DIR"] = out_dir
     gen = generate_pptx_v2 if design == "inpulsia2" else generate_pptx
-    path = gen(data["analysis"], data["client"], sections=set(ALL_SECTIONS), include_notes=True)
+    path = gen(analysis_from(data), data["client"], sections=set(ALL_SECTIONS), include_notes=True)
     base = os.path.splitext(os.path.basename(fixture))[0]
     final = os.path.join(out_dir, f"{base}_{design}.pptx")
     os.replace(path, final)

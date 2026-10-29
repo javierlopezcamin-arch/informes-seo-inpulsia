@@ -1,123 +1,144 @@
 # Plan: dos archivos, dos agentes (Diseño web → Marketing)
 
-Estado: **planificado** (2026-10-29). Sustituye al reparto de «un archivo para todo» de
-`PLAN_ADS_PROPUESTAS.md` y de `INSTRUCCIONES_MAESTRAS.md`.
+Estado: **planificado** (2026-10-29, v2: el cliente revisa **Word**, no un enlace). Sustituye al reparto de
+«un archivo para todo» de `PLAN_ADS_PROPUESTAS.md` y de `INSTRUCCIONES_MAESTRAS.md`.
 
 ## Idea
 
-Un solo archivo con todas las tareas obliga a un chat con demasiados conectores y a mezclar trabajo
-web con trabajo de Google. Se divide en dos agentes, en este orden:
+Un solo archivo con todas las tareas obliga a un chat con demasiados conectores y mezcla trabajo web y de
+Google. Se divide en dos agentes, en este orden:
 
-1. **Diseño web** (Elementor MCP): crea los posts en borrador, los deja revisables por el cliente y
-   hace todos los cambios y revisiones de la web. **Va primero.**
-2. **Marketing** (herramientas de Google: GA4, Search Console, Ads): trabaja con los datos y, **al
-   final**, deja pedidos concretos para diseño web si hacen falta.
+1. **Diseño web** (Elementor MCP): crea los posts **en borrador con toda la configuración SEO**, genera un
+   **Word por post para que Javi lo envíe al cliente** y hace todos los cambios y revisiones de la web.
+   **Va primero.**
+2. **Marketing** (GA4, Search Console, Ads): trabaja con los datos y, **al final**, deja pedidos concretos
+   para diseño web si hacen falta.
 
-Cada agente solo carga sus conectores (menos contexto, menos errores).
+Cada agente carga solo sus conectores (menos contexto, menos errores).
 
-## Hechos verificados sobre el Elementor MCP (condicionan el diseño)
+## Hechos verificados
 
 | Hecho | Consecuencia |
 |---|---|
-| `create-page` acepta `post_type` y crea la entrada **en borrador** | Se pueden crear posts del blog. Hay que comprobar que `post` esté activado en Elementor en cada web |
-| `create-preview-link` devuelve una URL **anónima, firmada, con caducidad y congelada** (foto del contenido en ese momento) | Sirve para que el cliente vea el borrador sin cuenta, pero **caduca y no refleja cambios posteriores**: hay que regenerarla tras cada cambio |
-| La propia herramienta dice que esa URL es para que el agente se autovalide y que al usuario se le dé `edit_url` (requiere login de WordPress) | Compartirla con el cliente es una decisión de Javi, no el uso previsto: se prueba antes (Fase 0) y se deja una alternativa |
-| En DTC Oral avisa de que requiere el «editor atómico», desactivado en ese sitio | Puede **no funcionar en algunas webs**. Hay que probarlo por cliente |
+| `create-page` del Elementor MCP acepta `post_type` y crea la entrada **en borrador** | Se pueden crear posts. Hay que comprobar que «Entradas» esté activado en Elementor en cada web |
+| Las 4 webs comprobadas (Piscinas Riviera, DTC Oral, 10DECO, Armonicar) usan **Rank Math** | Una sola vía SEO que resolver |
+| Piscinas Riviera ya tiene el plugin del Elementor MCP (`elementor-mcp-composer`, `mcp`, `wp-abilities`) | Solo falta añadir el conector en Claude. En Armonicar y 10DECO no se ve el plugin del MCP de Elementor |
+| Las herramientas del Elementor MCP no incluyen ninguna para **slug, título/meta SEO, palabra clave, categorías, etiquetas ni imagen destacada** (solo ajustes de documento, contenido, estilos y publicar) | **Riesgo principal.** Hay que probar cómo escribir esos campos (Fase 0). Mientras no se sepa, el Word lleva una «Ficha SEO» y el borrador queda con una lista de lo que falta por rellenar a mano |
+| `python-docx` no está instalado en este Mac | Hay que instalarlo (Fase 3) |
+| El enlace de vista previa del Elementor MCP caduca y es una foto fija | **Ya no se necesita**: se sustituye por el Word. Queda como extra opcional |
 
 ## Qué lleva cada archivo
-
-Se reparte lo que ya genera `generate_propuestas.py`:
 
 | Contenido actual | Archivo **Web** | Archivo **Marketing** |
 |---|---|---|
 | 1. Resumen de datos | Versión corta | Completa |
-| 2. Propuestas de post | **Brief completo de cada post** (ver Fase 2) | — |
-| 3. Palabras clave | Solo las de cada post | Tabla completa |
+| 2. Propuestas de post | **Brief completo de cada post** (Fase 2) | — |
+| 3. Palabras clave | Las de cada post | Tabla completa |
 | 3b. Páginas que pierden clics | **Sí** (actualizar / comprobar redirección) | — |
 | 3b. Llegan desde Google y no convierten | **Sí** (CTA, formulario, contenido) | Resumen |
 | 3b. Tráfico desde asistentes de IA | — | Sí |
-| URLs con y sin barra final | Diagnóstico (la acción es redirección en hosting o plugin: Elementor no la hace) | — |
+| URLs con y sin barra final | Diagnóstico (la acción es una redirección en hosting o plugin: Elementor no la hace) | — |
 | Etiquetas detectadas (GA4, Ads, GTM, consentimiento) | Lo que hay en la web | Qué falta para medir bien |
 | 4. Google Ads | Solo landings y URLs finales | **Todo** |
 | 5. Seguimiento de conversiones | — | **Sí**, con los pedidos a diseño web que necesite |
 | 6. Tareas | Las de web | Las de Google + **«Pedidos a diseño web»** al final |
 
-Regla para repartir tareas: lo que toca el sitio lo ejecuta Diseño web; lo que toca GA4, Search
-Console o Ads lo decide Marketing. Si Marketing necesita algo en la web, lo pide (no lo hace).
+Regla: lo que toca el sitio lo ejecuta Diseño web; lo que toca GA4, Search Console o Ads lo decide
+Marketing. Si Marketing necesita algo en la web, lo pide (no lo hace).
 
-## Flujo y entregables
+## Flujo
 
 ```
-Web de informes ──► ARCHIVO WEB ──► Agente Diseño web ──► HOJA DE ENTREGA ──┐
-                └─► ARCHIVO MARKETING ───────────────────────────────────────┤
-                                                                              ▼
-                                         Agente Marketing (lee la entrega) ──► PEDIDOS A DISEÑO WEB
-                                                                              │
-                                                  siguiente ciclo del agente Diseño web ◄┘
+Web de informes ─► ARCHIVO WEB ─► Agente Diseño web ─┬─► Borradores en Elementor (con SEO)
+                                                      ├─► WORD por post  ──► Javi lo envía al cliente
+                                                      └─► HOJA DE ENTREGA ─┐
+                └─► ARCHIVO MARKETING ───────────────────────────────────┤
+                                                                          ▼
+                                      Agente Marketing (lee la entrega) ─► PEDIDOS A DISEÑO WEB
+                                                                          └─► siguiente ciclo de Diseño web
 ```
 
-**Hoja de entrega** (la escribe Diseño web al terminar), una fila por pieza:
+Ciclo de cada post: `borrador` → `Word enviado al cliente` → `cambios pedidos` / `aprobado` → `publicado`
+(**lo publica Javi**, nunca el agente). Si el cliente pide cambios, Javi se los pasa al agente, que actualiza
+el borrador y genera el Word v2.
 
-| Pieza | Tipo | ID | Estado | Enlace interno (`edit_url`) | Enlace para el cliente | Caduca | Notas |
+## Configuración SEO del borrador (Rank Math)
+
+Campos que el agente debe dejar rellenados en cada post:
+
+| Campo | Origen |
+|---|---|
+| Título del post (H1) y **slug** | Brief |
+| **Título SEO** (≤ 60) y **meta descripción** (≤ 155) | Brief |
+| **Palabra clave principal** (Rank Math) y secundarias | Brief |
+| Categoría y etiquetas | Brief + las que ya existen en la web |
+| Extracto | Brief |
+| Imagen destacada y **texto alternativo** de cada imagen | Imágenes de la biblioteca (`list-assets`) o petición a Javi |
+| Enlaces internos | Brief, validados contra las URLs de la web |
+| Schema/OG | Valores por defecto de Rank Math |
+
+Vías para escribirlos, a probar en este orden (Fase 0): **(a)** herramientas o `abilities` del Elementor MCP;
+**(b)** API REST de Rank Math / campos meta mediante una herramienta local; **(c)** manual con la «Ficha SEO»
+(2 minutos por post). El agente informa en la hoja de entrega de **qué campos aplicó y cuáles faltan**.
+Seguridad: no se guardan contraseñas de aplicación de WordPress en el `.env` de la web sin decisión expresa de Javi.
+
+## El Word para el cliente
+
+- **Un Word por post**, con formato Inpulsia, hecho por una herramienta local (`crear_word_post`, Fase 3), no
+  por el chat: sale siempre igual y es el mismo contenido que el borrador.
+- Contiene: título, texto completo con H2/H3, llamada a la acción, sugerencias de imágenes y **«Ficha SEO»**
+  (título SEO, meta, slug, palabra clave, categoría). **Nada interno**: ni cifras de Ads, ni volúmenes, ni IDs.
+- Carpeta aparte de los archivos internos: `<OUTPUT_DIR>/para_cliente/<CLIENTE>/POST_<MM>_<AAAA>_<n>_<slug>.docx`.
+- La web lo lista para descargar o abrir la carpeta (Fase 4). Javi lo envía; la web no envía nada.
+
+## Hoja de entrega (la escribe Diseño web al terminar)
+
+| Pieza | Tipo | ID | Estado | `edit_url` | Word | SEO aplicado | Falta a mano |
 |---|---|---|---|---|---|---|---|
-| Post 1 | entrada | 123 | borrador | … | … | … | … |
+| Post 1 | entrada | 123 | borrador | … | ruta | título, meta, slug, kw | imagen destacada |
 
-Estados: `borrador` → `enviado al cliente` → `cambios pedidos` / `aprobado` → `publicado` (**lo publica
-Javi**, nunca el agente).
+## Pedidos a diseño web (los deja Marketing al final)
 
-**Pedidos a diseño web** (los deja Marketing al final), un bloque por pedido:
 `#n · Qué · Dónde (URL) · Por qué (dato del archivo) · Criterio de aceptación`.
-
-## Enlace visible para el cliente (a decidir tras la Fase 0)
-
-| Opción | Cómo | Pros | Contras |
-|---|---|---|---|
-| **A (primera a probar)** | `create-preview-link` | Sin plugins, sin cuentas | Caduca; es una foto fija; puede no funcionar con el editor atómico desactivado |
-| B | Plugin gratuito de vista previa pública de borradores | Enlace estable y sin login | Instalar un plugin en la web de cada cliente |
-| C (respaldo) | Contenido en un documento (Google Doc/PDF) para aprobar el texto; el diseño se revisa después | No toca la web | El cliente no ve el diseño |
-
-Se descarta publicar con contraseña: queda publicado y el título se ve en el blog.
 
 ## Fases
 
-**Fase 0 · Probar el Elementor (necesita a Javi).** Conectar el Elementor de Piscinas Riviera
-(`piscinas-riviera-elementor`, y `WP_MCP_PISCINAS_RIVIERA` en el `.env`). Comprobar: (a) `create-page`
-con `post_type=post` crea un borrador; (b) `create-preview-link` funciona en esa web y cuánto caduca;
-(c) la URL se abre sin login desde otro navegador. Elegir A, B o C.
+**Fase 0 · Probar el Elementor y Rank Math (necesita a Javi).** Conectar `piscinas-riviera-elementor` y poner
+`WP_MCP_PISCINAS_RIVIERA` en el `.env`. Comprobar: (a) crea un post en borrador (`post_type=post`);
+(b) cómo se escriben slug, título/meta SEO, palabra clave, categoría, etiquetas e imagen destacada (vías a, b, c);
+(c) que el contenido del post se construye bien y respeta los estilos de la web. Resultado: qué parte del SEO
+es automática y cuál manual.
 
-**Fase 1 · Dividir el generador** (`scripts/generate_propuestas.py`). Mantener el cálculo de señales
-y separar `build_markdown` en `build_web_markdown` y `build_marketing_markdown`. Nombres:
-`PROPUESTAS_WEB_<C>_<MM>_<AAAA>.md` y `PROPUESTAS_MARKETING_<C>_<MM>_<AAAA>.md`. Ajustar `main.py` (las
-líneas `PROPUESTAS:`), el análisis de salida de `app.py` y la subida a Drive (`upload_internal_doc`).
-Tareas etiquetadas por agente.
+**Fase 1 · Dividir el generador** (`scripts/generate_propuestas.py`). Mantener el cálculo de señales y separar
+`build_markdown` en `build_web_markdown` y `build_marketing_markdown`. Nombres
+`PROPUESTAS_WEB_<C>_<MM>_<AAAA>.md` y `PROPUESTAS_MARKETING_<C>_<MM>_<AAAA>.md`. Ajustar `main.py` (líneas
+`PROPUESTAS:`), el análisis de la salida en `app.py` y la subida a Drive. Tareas etiquetadas por agente.
 
-**Fase 2 · Brief completo de los posts** (misma llamada a Gemini, sin coste extra). Cada post lleva:
-título (≤ 60), slug, palabra clave principal y secundarias, título SEO y meta (≤ 155), H1, esquema
-H2/H3, intención de búsqueda, enlaces internos validados contra la web, llamada a la acción, idioma y
-longitud orientativa. Sin IA: queda como tarea para el agente.
+**Fase 2 · Brief completo de cada post** (misma llamada a Gemini, sin coste extra): título (≤ 60), slug, palabra
+clave principal y secundarias, título SEO, meta (≤ 155), H1, esquema H2/H3, intención de búsqueda, categoría y
+etiquetas, enlaces internos validados, llamada a la acción, idioma, longitud e ideas de imagen. Sin IA queda como
+tarea para el agente.
 
-**Fase 3 · Entrega y pedidos en el MCP local** (`scripts/mcp_server.py`):
-`get_propuestas(cliente, tipo="web"|"marketing")`, `guardar_entrega(cliente, mes, anio, contenido)` y
-`get_entrega(cliente, mes, anio)`. Así Marketing lee lo que hizo Diseño web sin copiar y pegar. Solo
-escribe en la carpeta `internos/`.
+**Fase 3 · Herramientas del MCP local** (`scripts/mcp_server.py`): `get_propuestas(cliente, tipo="web"|"marketing")`,
+`guardar_entrega` / `get_entrega` (solo escriben en `internos/`) y **`crear_word_post`** (recibe el post
+estructurado y genera el .docx en `para_cliente/`). Instalar `python-docx`.
 
-**Fase 4 · Web de informes.** Dos botones de descarga (Web y Marketing), recuento en la tanda y subida de
-los dos a `<CLIENTE>/INTERNO`. Un interruptor por cliente (ver decisiones).
+**Fase 4 · Web de informes.** Descargas del archivo Web y del de Marketing, lista de Word listos por cliente, recuento
+en la tanda y subida a `<CLIENTE>/INTERNO` (los Word, a una carpeta aparte del cliente, sin enviarlos).
 
-**Fase 5 · Instrucciones.** Dos bloques maestros (Diseño web y Marketing) y los primeros mensajes de cada
-uno, sustituyendo `INSTRUCCIONES_MAESTRAS.md`. Dos proyectos de Claude, cada uno con sus conectores:
-Diseño web = Elementor del cliente + `seo-inpulsia`; Marketing = solo `seo-inpulsia`.
+**Fase 5 · Instrucciones.** Dos bloques maestros (Diseño web y Marketing) y sus primeros mensajes, sustituyendo
+`INSTRUCCIONES_MAESTRAS.md`. Dos proyectos de Claude: Diseño web = Elementor del cliente + `seo-inpulsia`;
+Marketing = solo `seo-inpulsia`.
 
 **Orden:** Fase 0 en cuanto esté conectado el Elementor (en paralelo al código) → 1 → 2 → 3 → 4 → 5.
 
 ## Decisiones por defecto (cambiables)
 
-- **Interruptor:** hoy una casilla controla «Ads + propuestas». Propongo **dos**: «Archivo de diseño web»
-  (para cualquier cliente con web: contenido que cae, posts) y «Google Ads + archivo de marketing»
-  (solo clientes con Customer ID). Así los clientes sin Ads también reciben posts y revisiones.
-- **Cupo de Gemini:** la llamada de los posts solo se hace si el archivo web está activado; el archivo
-  de marketing no usa IA.
-- **Publicar:** siempre Javi, tras la aprobación del cliente.
-- **Entrega entre agentes:** por el MCP local (Fase 3), con el copia y pega como respaldo.
-- **Sin cambios de código hasta confirmar la Fase 0:** no se construye nada que dependa del enlace de
-  vista previa hasta saber si funciona en las webs reales.
+- **Dos interruptores por cliente:** «Archivo de diseño web» (cualquier cliente con web) y «Google Ads + archivo de
+  marketing» (solo con Customer ID).
+- **Gemini** solo para los posts, y solo si el archivo web está activado; el de marketing no usa IA.
+- **Un Word por post**, sin datos internos, con «Ficha SEO» al final y versión v2 si hay cambios.
+- **Publicar:** siempre Javi, tras la aprobación del cliente. El agente nunca publica ni envía nada.
+- **Entrega entre agentes:** por el MCP local, con copiar y pegar como respaldo.
+- **Credenciales de WordPress:** no se guardan en la web; si hace falta una herramienta local para el SEO se decide
+  aparte.

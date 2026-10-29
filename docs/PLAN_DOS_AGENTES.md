@@ -21,7 +21,7 @@ Cada agente carga solo sus conectores (menos contexto, menos errores).
 | Hecho | Consecuencia |
 |---|---|
 | `create-page` del Elementor MCP acepta `post_type` y crea la entrada **en borrador** | Se pueden crear posts. Hay que comprobar que «Entradas» esté activado en Elementor en cada web |
-| Las 4 webs comprobadas (Piscinas Riviera, DTC Oral, 10DECO, Armonicar) usan **Rank Math** | Una sola vía SEO que resolver |
+| **Todos los clientes usan Rank Math** (Javi; comprobado en Piscinas Riviera, DTC Oral, 10DECO y Armonicar) | Una sola vía SEO que resolver y un único criterio de «verde» |
 | Piscinas Riviera ya tiene el plugin del Elementor MCP (`elementor-mcp-composer`, `mcp`, `wp-abilities`) | Solo falta añadir el conector en Claude. En Armonicar y 10DECO no se ve el plugin del MCP de Elementor |
 | Las herramientas del Elementor MCP no incluyen ninguna para **slug, título/meta SEO, palabra clave, categorías, etiquetas ni imagen destacada** (solo ajustes de documento, contenido, estilos y publicar) | **Riesgo principal.** Hay que probar cómo escribir esos campos (Fase 0). Mientras no se sepa, el Word lleva una «Ficha SEO» y el borrador queda con una lista de lo que falta por rellenar a mano |
 | `python-docx` no está instalado en este Mac | Hay que instalarlo (Fase 3) |
@@ -62,40 +62,52 @@ Ciclo de cada post: `borrador` → `Word enviado al cliente` → `cambios pedido
 (**lo publica Javi**, nunca el agente). Si el cliente pide cambios, Javi se los pasa al agente, que actualiza
 el borrador y genera el Word v2.
 
-## Configuración SEO del borrador (Rank Math)
+## Rank Math en verde
 
-Campos que el agente debe dejar rellenados en cada post:
+**Criterio de aceptación:** cada post queda con la puntuación **verde** de Rank Math (80 o más) y los tests en
+verde. Lo que no pueda quedar verde se explica en la hoja de entrega. Los requisitos siguientes salen de los
+tests habituales de Rank Math; los umbrales exactos se **calibran en la Fase 0** contra el panel real de cada web.
 
-| Campo | Origen |
+| Bloque | Requisito en cada post |
 |---|---|
-| Título del post (H1) y **slug** | Brief |
-| **Título SEO** (≤ 60) y **meta descripción** (≤ 155) | Brief |
-| **Palabra clave principal** (Rank Math) y secundarias | Brief |
-| Categoría y etiquetas | Brief + las que ya existen en la web |
-| Extracto | Brief |
-| Imagen destacada y **texto alternativo** de cada imagen | Imágenes de la biblioteca (`list-assets`) o petición a Javi |
-| Enlaces internos | Brief, validados contra las URLs de la web |
-| Schema/OG | Valores por defecto de Rank Math |
+| **Snippet de resultado** | **Título SEO** ≤ 60 caracteres, con la palabra clave al principio y, si encaja, un número o un gancho · **Meta descripción** de 120 a 155 caracteres con la palabra clave y una llamada a la acción · **Slug** corto (< 75 caracteres) con la palabra clave |
+| **Palabras clave** | Una principal **no usada antes** en otro contenido de la web (se comprueba contra la web) y 2-4 secundarias · La principal en el primer párrafo, en el H1, en al menos un H2, en el alt de una imagen y con densidad ≈ 1 % |
+| **Estructura** | **Un solo H1** (el título; comprobar que el tema o Elementor no pinta otro) · H2 por sección y H3 dentro de cada H2, sin saltar niveles · Mínimo 600 palabras (guías: 1.000-1.500) · Párrafos de 120 palabras o menos, listas, tabla de contenidos desde 4 H2 y al menos una imagen o vídeo |
+| **Enlaces internos** | 3-5 a páginas y posts existentes (URL validada contra la web, texto ancla descriptivo y sin repetir) · Además, **2 páginas existentes enlazan al nuevo post** (queda como tarea de editar una copia en borrador) |
+| **Enlaces externos** | 1-3 a fuentes fiables (instituciones, normativa, fabricantes, estudios), nunca competidores · La URL se comprueba (responde 200) antes de usarla · Enlace normal y en pestaña nueva |
+| **Schema** (pestaña Schema de Rank Math) | **Article/BlogPosting** siempre, con autor, fecha e imagen · **FAQPage** si el post lleva 3-5 preguntas frecuentes visibles · **HowTo** si es una guía paso a paso · Nunca schema de contenido que no se vea en la página |
+| **Snippets destacados** (posición cero) | Bajo los H2 redactados como pregunta, una **respuesta directa de 40-60 palabras** y luego el desarrollo · Listas numeradas para pasos y tablas para comparativas · Bloque de preguntas frecuentes al final |
+| **Imágenes** | Imagen destacada, texto alternativo descriptivo en todas (una con la palabra clave), nombre de archivo limpio y peso ligero (WebP) |
+| **Otros campos** | Categoría, etiquetas y extracto |
 
-Vías para escribirlos, a probar en este orden (Fase 0): **(a)** herramientas o `abilities` del Elementor MCP;
-**(b)** API REST de Rank Math / campos meta mediante una herramienta local; **(c)** manual con la «Ficha SEO»
-(2 minutos por post). El agente informa en la hoja de entrega de **qué campos aplicó y cuáles faltan**.
+**Cómo se escribe en WordPress.** Vías a probar en este orden (Fase 0): **(a)** herramientas o `abilities` del
+Elementor MCP; **(b)** API REST de Rank Math o campos meta mediante una herramienta local; **(c)** manual con la
+«Ficha SEO» (unos 2 minutos por post). El agente informa de **qué campos aplicó y cuáles faltan**.
 Seguridad: no se guardan contraseñas de aplicación de WordPress en el `.env` de la web sin decisión expresa de Javi.
+
+**Cómo se comprueba el verde.** El agente no puede leer la puntuación de Rank Math (se calcula en el navegador),
+así que se hace en tres pasos:
+1. **Antes de crear el borrador:** `validar_seo_post` (herramienta local, Fase 3) aplica estos requisitos al post
+   estructurado y devuelve un **semáforo por test**. Si algo está en rojo, el agente lo corrige antes de seguir.
+2. **Tras crear el borrador:** Javi abre el post en WordPress y mira la puntuación real. Si difiere del semáforo,
+   se anota y se ajusta la herramienta (calibración de la Fase 0).
+3. **Hoja de entrega:** semáforo por post con los tests que no pasan y el motivo.
 
 ## El Word para el cliente
 
 - **Un Word por post**, con formato Inpulsia, hecho por una herramienta local (`crear_word_post`, Fase 3), no
   por el chat: sale siempre igual y es el mismo contenido que el borrador.
-- Contiene: título, texto completo con H2/H3, llamada a la acción, sugerencias de imágenes y **«Ficha SEO»**
-  (título SEO, meta, slug, palabra clave, categoría). **Nada interno**: ni cifras de Ads, ni volúmenes, ni IDs.
+- Contiene: título, texto completo con H2/H3, preguntas frecuentes, llamada a la acción, sugerencias de imágenes con su
+  texto alternativo, lista de enlaces (internos y externos) y **«Ficha SEO»** (título SEO, meta, slug, palabra clave,
+  categoría, tipo de schema). **Nada interno**: ni cifras de Ads, ni volúmenes, ni IDs, ni el semáforo.
 - Carpeta aparte de los archivos internos: `<OUTPUT_DIR>/para_cliente/<CLIENTE>/POST_<MM>_<AAAA>_<n>_<slug>.docx`.
 - La web lo lista para descargar o abrir la carpeta (Fase 4). Javi lo envía; la web no envía nada.
 
 ## Hoja de entrega (la escribe Diseño web al terminar)
 
-| Pieza | Tipo | ID | Estado | `edit_url` | Word | SEO aplicado | Falta a mano |
-|---|---|---|---|---|---|---|---|
-| Post 1 | entrada | 123 | borrador | … | ruta | título, meta, slug, kw | imagen destacada |
+| Pieza | Tipo | ID | Estado | `edit_url` | Word | SEO aplicado | Semáforo | Falta a mano |
+|---|---|---|---|---|---|---|---|---|
+| Post 1 | entrada | 123 | borrador | … | ruta | título, meta, slug, kw, schema | 11 verdes, 1 naranja (palabras: 560) | imagen destacada |
 
 ## Pedidos a diseño web (los deja Marketing al final)
 
@@ -104,24 +116,29 @@ Seguridad: no se guardan contraseñas de aplicación de WordPress en el `.env` d
 ## Fases
 
 **Fase 0 · Probar el Elementor y Rank Math (necesita a Javi).** Conectar `piscinas-riviera-elementor` y poner
-`WP_MCP_PISCINAS_RIVIERA` en el `.env`. Comprobar: (a) crea un post en borrador (`post_type=post`);
-(b) cómo se escriben slug, título/meta SEO, palabra clave, categoría, etiquetas e imagen destacada (vías a, b, c);
-(c) que el contenido del post se construye bien y respeta los estilos de la web. Resultado: qué parte del SEO
-es automática y cuál manual.
+`WP_MCP_PISCINAS_RIVIERA` en el `.env`. Comprobar: (a) crea un post en borrador (`post_type=post`); (b) cómo se
+escriben slug, título SEO, meta, palabra clave, categoría, etiquetas, imagen destacada y **schema** (vías a, b, c);
+(c) que el contenido se construye bien, con un solo H1, y respeta los estilos de la web; (d) **calibración:** crear un
+post de prueba, mirar la puntuación real de Rank Math y compararla con el semáforo. Resultado: qué parte del SEO es
+automática y cuál manual.
 
 **Fase 1 · Dividir el generador** (`scripts/generate_propuestas.py`). Mantener el cálculo de señales y separar
 `build_markdown` en `build_web_markdown` y `build_marketing_markdown`. Nombres
 `PROPUESTAS_WEB_<C>_<MM>_<AAAA>.md` y `PROPUESTAS_MARKETING_<C>_<MM>_<AAAA>.md`. Ajustar `main.py` (líneas
 `PROPUESTAS:`), el análisis de la salida en `app.py` y la subida a Drive. Tareas etiquetadas por agente.
 
-**Fase 2 · Brief completo de cada post** (misma llamada a Gemini, sin coste extra): título (≤ 60), slug, palabra
-clave principal y secundarias, título SEO, meta (≤ 155), H1, esquema H2/H3, intención de búsqueda, categoría y
-etiquetas, enlaces internos validados, llamada a la acción, idioma, longitud e ideas de imagen. Sin IA queda como
-tarea para el agente.
+**Fase 2 · Brief completo de cada post** (misma llamada a Gemini, sin coste extra): título (≤ 60), slug, palabra clave
+principal y secundarias, título SEO, meta (120-155), H1, esquema H2/H3 (con H2 en forma de pregunta y su respuesta
+directa de 40-60 palabras), preguntas frecuentes, tipo de schema, categoría y etiquetas, **enlaces internos validados**
+contra la web, **enlaces externos validados** (el generador comprueba que la URL responde 200 y descarta las que no; si
+la IA no propone ninguna fiable, queda el tipo de fuente para que el agente la busque), llamada a la acción, idioma,
+longitud e ideas de imagen con alt. Además, 2 páginas existentes que deben enlazar al post. Sin IA queda como tarea
+para el agente.
 
 **Fase 3 · Herramientas del MCP local** (`scripts/mcp_server.py`): `get_propuestas(cliente, tipo="web"|"marketing")`,
-`guardar_entrega` / `get_entrega` (solo escriben en `internos/`) y **`crear_word_post`** (recibe el post
-estructurado y genera el .docx en `para_cliente/`). Instalar `python-docx`.
+`guardar_entrega` / `get_entrega` (solo escriben en `internos/`), **`validar_seo_post`** (semáforo Rank Math sobre el
+post estructurado, antes de crear el borrador) y **`crear_word_post`** (genera el .docx en `para_cliente/`). Instalar
+`python-docx`.
 
 **Fase 4 · Web de informes.** Descargas del archivo Web y del de Marketing, lista de Word listos por cliente, recuento
 en la tanda y subida a `<CLIENTE>/INTERNO` (los Word, a una carpeta aparte del cliente, sin enviarlos).
@@ -138,6 +155,9 @@ Marketing = solo `seo-inpulsia`.
   marketing» (solo con Customer ID).
 - **Gemini** solo para los posts, y solo si el archivo web está activado; el de marketing no usa IA.
 - **Un Word por post**, sin datos internos, con «Ficha SEO» al final y versión v2 si hay cambios.
+- **Verde = 80 o más en Rank Math** y todos los tests en verde; si uno no puede cumplirse (por ejemplo, 600 palabras en un
+  post corto), se justifica en la hoja de entrega en lugar de forzarlo.
+- **El agente no publica un post que tenga tests en rojo** sin avisar a Javi.
 - **Publicar:** siempre Javi, tras la aprobación del cliente. El agente nunca publica ni envía nada.
 - **Entrega entre agentes:** por el MCP local, con copiar y pegar como respaldo.
 - **Credenciales de WordPress:** no se guardan en la web; si hace falta una herramienta local para el SEO se decide

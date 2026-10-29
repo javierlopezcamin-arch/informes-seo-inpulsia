@@ -35,7 +35,7 @@ from analyze import analyze_seo_data
 from seo_insights import build_insights
 from generate_pptx import generate_pptx, convert_to_pdf
 from generate_pptx_v2 import generate_pptx_v2
-from generate_propuestas import generate_propuestas
+from generate_propuestas import generate_propuestas, web_enabled_for
 from upload_drive import upload_report, upload_internal_doc
 from utils import MESES, prev_month
 import copy
@@ -73,7 +73,7 @@ def main():
     parser.add_argument('--notes-level', type=str, default='analitico', choices=['positivo', 'analitico'], help='Profundidad de las notas IA')
     parser.add_argument('--design', type=str, default='inpulsia1', choices=['inpulsia1', 'inpulsia2'], help='Diseño del informe')
     parser.add_argument('--new-ai', action='store_true', help='Redactar de nuevo con IA aunque haya una respuesta guardada para estos datos')
-    parser.add_argument('--no-propuestas', action='store_true', help='No generar el archivo interno de propuestas (clientes con Ads marcado)')
+    parser.add_argument('--no-propuestas', action='store_true', help='No generar los archivos internos de propuestas (Web y Marketing)')
     args = parser.parse_args()
 
     if args.month < 1 or args.month > 12:
@@ -322,13 +322,17 @@ def main():
     print(f"\n📄 Convirtiendo a PDF...")
     pdf_path = convert_to_pdf(filepath)
 
-    # ── 5b. Archivo interno de propuestas (solo clientes marcados) ──
-    prop_path = None
-    if marked and not args.no_propuestas:
-        print(f"\n📝 Generando archivo de propuestas (interno)...")
+    # ── 5b. Archivos internos: WEB (WEB_EN_INFORME_<C>) y MARKETING (ADS_EN_INFORME_<C>) ──
+    props = {}
+    web_on = web_enabled_for(client)
+    if (marked or web_on) and not args.no_propuestas:
+        print(f"\n📝 Generando archivos de propuestas (interno)...")
         try:
-            prop_path = generate_propuestas(client, month, year, real_ga4, real_sc, ads_data, ads_error, insights)
-            print(f"  ✅ Guardado: {prop_path}")
+            props = generate_propuestas(client, month, year, real_ga4, real_sc, ads_data, ads_error, insights,
+                                        web=web_on, marketing=marked)
+            for kind, path in props.items():
+                if path:
+                    print(f"  ✅ Guardado ({kind}): {path}")
         except Exception as e:
             print(f"  ⚠️  Propuestas: {type(e).__name__}: {e} — el informe se mantiene")
 
@@ -339,10 +343,11 @@ def main():
         drive_url = upload_report(filepath, client)
         if pdf_path:
             upload_report(pdf_path, client)
-        if prop_path:
-            prop_drive = upload_internal_doc(prop_path, client)
-            if prop_drive:
-                print(f"  📝 Propuestas en Drive: {prop_drive}")
+        for kind, path in props.items():
+            if path:
+                prop_drive = upload_internal_doc(path, client)
+                if prop_drive:
+                    print(f"  📝 Propuestas {kind} en Drive: {prop_drive}")
 
     # ── Resultado ───────────────────────────────────────────
     print("\n" + "=" * 60)
@@ -353,8 +358,9 @@ def main():
     print(f"  📄 PPTX:     {filepath}")
     if pdf_path:
         print(f"  📄 PDF:      {pdf_path}")
-    if prop_path:
-        print(f"  📝 PROPUESTAS: {prop_path}")
+    for kind, path in props.items():
+        if path:
+            print(f"  📝 PROPUESTAS {kind.upper()}: {path}")
     if drive_url:
         print(f"  ☁️  Drive:    {drive_url}")
     print("=" * 60 + "\n")

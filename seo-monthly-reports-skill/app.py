@@ -64,7 +64,7 @@ _STEP_ICONS = ("🔍", "📊", "📈", "📣", "📐", "⚡", "🔎", "🔬", "�
 
 
 def _new_result():
-    return {"rc": None, "filepath": None, "drive_url": None, "propuestas": None, "warns": [], "lines": [], "step": ""}
+    return {"rc": None, "filepath": None, "drive_url": None, "propuestas": {}, "warns": [], "lines": [], "step": ""}
 
 
 def _parse_line(line, res):
@@ -72,8 +72,9 @@ def _parse_line(line, res):
     res["lines"].append(line.rstrip())
     if "PPTX:" in line:
         res["filepath"] = line.split("PPTX:", 1)[1].strip()
-    if "PROPUESTAS:" in line:
-        res["propuestas"] = line.split("PROPUESTAS:", 1)[1].strip()
+    m = re.search(r"PROPUESTAS (WEB|MARKETING):\s*(.+)", line)
+    if m:
+        res["propuestas"][m.group(1).lower()] = m.group(2).strip()
     # Avisos de main.py (⚠️ parcial, ❌ error): se muestran en el resultado, no solo en el registro
     w = line.strip()
     if w.startswith(("⚠️", "❌")) and w not in res["warns"]:
@@ -763,11 +764,11 @@ def show_batch(batch):
         execute_batch(failed, retry, keep=ok)
         st.rerun()
     _dirs = {os.path.dirname(r["filepath"]) for _, r in ok if r["filepath"]}
-    props = [r["propuestas"] for _, r in ok if r["propuestas"]]
+    props = [path for _, r in ok for path in r["propuestas"].values()]
     if len(_dirs) == 1 and st.button("Abrir carpeta de informes", use_container_width=True, key="open_batch_dir"):
         subprocess.run(["open", next(iter(_dirs))])
     if props:
-        st.caption(f"📝 {len(props)} archivo(s) de propuestas internos en `{os.path.dirname(props[0])}`")
+        st.caption(f"📝 {len(props)} archivo(s) de propuestas internos (Web y Marketing) en `{os.path.dirname(props[0])}`")
         if st.button("Abrir carpeta de propuestas", use_container_width=True, key="open_props_dir"):
             subprocess.run(["open", os.path.dirname(props[0])])
 
@@ -953,12 +954,14 @@ with tab1:
                                            mime="application/pdf", use_container_width=True)
             with cols[-1]:
                 if st.button("Abrir carpeta",use_container_width=True): subprocess.run(["open",os.path.dirname(report["filepath"])])
-        _prop = report.get("propuestas")
-        if _prop and os.path.exists(_prop):
-            with open(_prop, "rb") as f:
-                st.download_button("📝 Archivo de propuestas (interno)", f.read(), file_name=os.path.basename(_prop),
-                                   mime="text/markdown", use_container_width=True)
-            st.caption("Para trabajarlo en el proyecto de Claude del cliente. No enviar al cliente.")
+        _props = {k: v for k, v in (report.get("propuestas") or {}).items() if v and os.path.exists(v)}
+        for _kind, _label in (("web", "🧩 Archivo WEB (agente de Diseño web)"), ("marketing", "📈 Archivo MARKETING (agente de Marketing)")):
+            if _kind in _props:
+                with open(_props[_kind], "rb") as f:
+                    st.download_button(_label, f.read(), file_name=os.path.basename(_props[_kind]),
+                                       mime="text/markdown", use_container_width=True, key=f"dl_prop_{_kind}")
+        if _props:
+            st.caption("Internos: se trabajan en los proyectos de Claude de Diseño web y Marketing. No enviar al cliente.")
 
 
 def _norm(s):

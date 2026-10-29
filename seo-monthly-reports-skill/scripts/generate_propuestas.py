@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-Archivo INTERNO de propuestas para clientes con Google Ads marcado.
+Archivos INTERNOS de propuestas. Se generan junto al informe del cliente y los trabajan dos
+agentes de Claude, en este orden:
 
-Lo genera la web junto al PDF del cliente y se trabaja después en el proyecto de
-Claude "Clientes Inpulsia" (MCP de Google Ads + MCP de Elementor de la web).
+  1. WEB (agente de Diseño web, Elementor MCP): posts en borrador con la configuración de
+     Rank Math en verde, Word por post para el cliente y cambios/revisiones de la web.
+     Se activa por cliente con WEB_EN_INFORME_<CLIENTE>=true.
+  2. MARKETING (agente de herramientas de Google): análisis con GA4, Search Console y Ads, y
+     pedidos a Diseño web. Se activa con ADS_EN_INFORME_<CLIENTE>=true.
 
   - Señales y tablas: reglas en Python (sin coste de tokens).
-  - 2 propuestas de post para el blog: 1 llamada a Gemini (gratis). Sin respaldo de
-    pago: si no hay cupo, el archivo deja la tarea para el proyecto de Claude.
+  - El brief de los 2 posts del archivo WEB: 1 llamada a Gemini (gratis). Sin respaldo de
+    pago: si no hay cupo, el archivo deja la tarea para el agente.
   - Siempre con datos reales (sin el ajuste +10%…+50% del informe).
 """
 
@@ -15,9 +19,11 @@ import hashlib
 import json
 import os
 import re
+import time
 import unicodedata
 
 from utils import MESES, get_output_dir, cache_read, cache_write, gemini_usage, GEMINI_DAILY_LIMIT, gemini_bump, gemini_mark_exhausted
+from seo_posts import brief_issues, check_url, url_ok, norm
 
 AI_TIMEOUT_MS = 90_000
 
@@ -192,7 +198,16 @@ def keyword_table(sig: dict) -> list:
     return rows[:20]
 
 
-# ── IA: 2 propuestas de post (solo Gemini) ────────────────────
+# ── IA: 2 posts con el brief completo (solo Gemini) ───────────
+def _norm_kw(p: dict) -> str:
+    return norm(p.get("keyword_principal", "")) or "\x00"
+
+
+def web_enabled_for(client: str) -> bool:
+    """Archivo de diseño web activado para el cliente (WEB_EN_INFORME_<CLIENTE>=true)."""
+    return os.getenv(f"WEB_EN_INFORME_{client.upper()}", "").strip().lower() in ("true", "1", "si", "sí")
+
+
 def _ai_posts(client: str, base: str, month: int, year: int, sig: dict, kw_rows: list, wp: dict) -> list:
     if os.getenv("IA_ENABLED", "true").lower() == "false":
         print("  ℹ️  Propuestas: IA desactivada; los posts quedan como tarea para Claude")
@@ -202,16 +217,35 @@ def _ai_posts(client: str, base: str, month: int, year: int, sig: dict, kw_rows:
     kw_txt = "\n".join(f"- {r['kw']} | {r['fuente']} | {r['impr']} | pos {r['pos'] or '—'} | {r['uso']}" for r in kw_rows) or "- (sin datos)"
     peaks = ", ".join(f"{k}: pico en {v}" for k, v in sig["peaks"].items()) or "sin datos"
     prompt = (
-        "Eres consultor SEO de una agencia. Propón EXACTAMENTE 2 posts nuevos para el blog de esta web. "
-        "Responde SOLO con JSON válido, sin markdown, con esta estructura:\n"
-        '{"posts":[{"titulo":"","variante":"","keyword_principal":"","keywords_secundarias":["",""],'
-        '"intencion":"","slug":"","meta_description":"","h1":"","h2":["","","","",""],'
-        '"enlaces_internos":[{"url":"","anchor":""}],"cta":"","por_que":""}]}\n'
-        "Reglas: español; titulo ≤ 60 caracteres; variante = otro TÍTULO alternativo ≤ 60 caracteres (no una frase "
-        "promocional); meta_description ≤ 155; 5-7 h2, cada uno formulado como pregunta o con la respuesta concreta; "
-        "2-3 enlaces_internos usando SOLO URLs de la lista; cta hacia el servicio principal; por_que = 1-2 frases "
-        "con al menos una cifra copiada de las keywords candidatas (clics, impresiones o posición; no inventes ninguna); "
-        "no repitas temas de los posts existentes; prioriza keywords con uso 'post'.\n\n"
+        "Eres consultor SEO de una agencia y conoces Rank Math. Propón EXACTAMENTE 2 posts nuevos para el blog de esta web, "
+        "preparados para que el diseñador web los cree con la puntuación de Rank Math en verde. "
+        "Responde SOLO con JSON válido con esta estructura:\n"
+        '{"posts":[{"titulo":"","variante":"","keyword_principal":"","keywords_secundarias":["",""],"intencion":"",'
+        '"slug":"","titulo_seo":"","meta_description":"","categoria":"","etiquetas":["",""],"extracto":"",'
+        '"secciones":[{"h2":"","respuesta_directa":"","h3":["",""]}],'
+        '"faq":[{"pregunta":"","respuesta":""}],"schema":["Article","FAQPage"],'
+        '"enlaces_internos":[{"url":"","anchor":""}],"paginas_que_enlazan":[{"url":"","anchor":""}],'
+        '"enlaces_externos":[{"url":"","anchor":"","fuente":""}],"fuentes_externas":[""],'
+        '"cta":"","palabras":900,"imagenes":[{"idea":"","alt":""}],"por_que":""}]}\n'
+        "Reglas:\n"
+        "- Idioma: el de los posts ya publicados.\n"
+        "- titulo ≤ 60 caracteres; variante = otro TÍTULO alternativo ≤ 60 (no una frase promocional).\n"
+        "- keyword_principal: una expresión de búsqueda real de las candidatas que no coincida con un post existente; "
+        "keywords_secundarias: 2-4.\n"
+        "- titulo_seo ≤ 60 caracteres con la keyword_principal al principio y, si encaja, un número. "
+        "meta_description de 120 a 155 caracteres con la keyword_principal y una llamada a la acción. "
+        "slug en minúsculas, sin tildes, con guiones, con la keyword_principal y menos de 75 caracteres.\n"
+        "- secciones: 5-7 H2; al menos uno contiene la keyword_principal; los 2-3 primeros formulados como pregunta y con "
+        "respuesta_directa de 40 a 60 palabras; h3: 0-3 por sección.\n"
+        "- faq: 3-4 preguntas reales con respuesta de 1-2 frases. schema: siempre \"Article\"; añade \"FAQPage\" si hay faq "
+        "y \"HowTo\" solo si es una guía paso a paso.\n"
+        "- enlaces_internos: 3-5 usando SOLO URLs de la lista; paginas_que_enlazan: 2 URLs de la lista que deberían enlazar al post nuevo.\n"
+        "- enlaces_externos: SOLO si conoces una URL oficial que existe con seguridad (instituciones, normativa, organismos); "
+        "si no, déjalo vacío y describe el tipo de fuente en fuentes_externas. No cites competidores.\n"
+        "- imagenes: 2-3 con idea y alt; el alt de una contiene la keyword_principal.\n"
+        "- por_que = 1-2 frases con al menos una cifra copiada de las keywords candidatas (clics, impresiones o posición; "
+        "no inventes ninguna).\n"
+        "- No repitas temas de los posts existentes; prioriza keywords con uso 'post'.\n\n"
         f"Cliente: {client} · Web: {base} · Mes analizado: {MESES.get(month)} {year}\n"
         f"Estacionalidad (Google Trends): {peaks}\n"
         f"Keywords candidatas (keyword | fuente | volumen | posición orgánica | uso):\n{kw_txt}\n"
@@ -219,7 +253,7 @@ def _ai_posts(client: str, base: str, month: int, year: int, sig: dict, kw_rows:
         f"URLs disponibles para enlazar: {json.dumps(links, ensure_ascii=False)}"
     )
     # Mismos datos → mismos posts guardados, sin gastar otra llamada (IA_NUEVA=true los pide de nuevo)
-    cache_key = "ai_posts_v1_" + hashlib.md5(prompt.encode()).hexdigest()
+    cache_key = "ai_posts_v2_" + hashlib.md5(prompt.encode()).hexdigest()
     cached = None if os.getenv("IA_NUEVA", "false").lower() == "true" else cache_read(cache_key, 24 * 60)
     key = os.getenv("GOOGLE_GEMINI_API_KEY", "").strip()
     if cached:
@@ -234,7 +268,7 @@ def _ai_posts(client: str, base: str, month: int, year: int, sig: dict, kw_rows:
         if posts is None:
             return []
         cache_write(cache_key, {"posts": posts})
-    return _valid_posts(posts, links, wp)
+    return _valid_posts(posts, links, wp, base)
 
 
 def _ai_posts_call(key: str, prompt: str):
@@ -245,25 +279,59 @@ def _ai_posts_call(key: str, prompt: str):
     try:
         # El cliente debe vivir en una variable: si se encadena, se cierra antes de la petición
         client_ai = genai.Client(api_key=key, http_options={"timeout": AI_TIMEOUT_MS})
-        resp = client_ai.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt)
+        try:
+            from google.genai import types
+            cfg = types.GenerateContentConfig(response_mime_type="application/json", max_output_tokens=8192)
+        except Exception:
+            cfg = None
+        resp = None
+        for attempt in (1, 2):  # un reintento si el servidor de Google falla (500/503)
+            try:
+                resp = client_ai.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt, config=cfg)
+                break
+            except Exception as e:
+                if attempt == 2 or not any(c in str(e) for c in ("500", "503", "UNAVAILABLE", "INTERNAL", "overloaded")):
+                    raise
+                print(f"  ⚠️  Propuestas: Gemini no responde ({str(e)[:90]}); reintentando…")
+                time.sleep(5)
         gemini_bump()
         txt = (resp.text or "").strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         posts = json.loads(txt).get("posts", [])
     except Exception as e:
         if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             gemini_mark_exhausted()
-        print(f"  ⚠️  Propuestas: IA sin respuesta válida ({type(e).__name__}); los posts quedan como tarea")
+        print(f"  ⚠️  Propuestas: IA sin respuesta válida ({type(e).__name__}: {str(e)[:160]}); los posts quedan como tarea")
         return None
     return posts if isinstance(posts, list) else None
 
 
-def _valid_posts(posts: list, links: list, wp: dict) -> list:
+def _valid_posts(posts: list, links: list, wp: dict, base: str = "") -> list:
+    """Se queda con enlaces internos reales y enlaces externos que responden; añade avisos del brief."""
+    from urllib.parse import urlparse
     valid = set(links)
+    host = urlparse(base).netloc.lower().removeprefix("www.") if base else ""
     out = []
     for p in posts[:2]:
         if not isinstance(p, dict) or not p.get("titulo"):
             continue
-        p["enlaces_internos"] = [l for l in p.get("enlaces_internos", []) if isinstance(l, dict) and l.get("url") in valid]
+        for k in ("enlaces_internos", "paginas_que_enlazan"):
+            p[k] = [l for l in p.get(k, []) if isinstance(l, dict) and l.get("url") in valid]
+        ext = []
+        for l in p.get("enlaces_externos", []):
+            u = str(l.get("url", "")) if isinstance(l, dict) else ""
+            if not u.startswith("http") or (host and host in urlparse(u).netloc.lower()):
+                continue
+            if url_ok(check_url(u)[0]) == "ok":
+                ext.append(l)
+            else:
+                print(f"  ℹ️  Propuestas: enlace externo descartado (no responde): {u}")
+        p["enlaces_externos"] = ext
+        p["avisos_brief"] = brief_issues(p)
+        imgs = [i for i in p.get("imagenes", []) if isinstance(i, dict)]
+        if any(not i.get("alt") for i in imgs):
+            p["avisos_brief"].append("hay imágenes sin texto alternativo")
+        if imgs and not any(_norm_kw(p) in _norm_kw({"keyword_principal": i.get("alt", "")}) for i in imgs):
+            p["avisos_brief"].append("ningún texto alternativo lleva la palabra clave principal")
         p["existente"] = _existing_post(p.get("keyword_principal") or p["titulo"], wp.get("posts", []))
         out.append(p)
     print(f"  ✅ Propuestas: {len(out)} posts propuestos con IA")
@@ -332,30 +400,28 @@ def _conversion_section(ads: dict, tracking: dict, paid: list, sig: dict) -> str
     return "\n".join(lines) + "\n"
 
 
-def _insights_section(ins: dict) -> list:
-    """Sección 3b: contenido que pierde clics, cruce Search Console × GA4 por URL y tráfico desde IA."""
+def _insight_blocks(ins: dict, parts: tuple) -> list:
+    """Contenido que pierde clics, cruce Search Console × GA4 por URL y visitas desde asistentes de IA."""
     dec, land, ai = ins.get("decay") or {}, ins.get("landings") or {}, ins.get("ai") or {}
-    if not (dec.get("pages") or land.get("visible_no_conv") or land.get("conv_low_vis") or ai.get("sessions")
-            or ("measured" in land and not land["measured"])):
-        return []
-    out = ["## 3b. Contenido, páginas y tráfico desde IA", ""]
-    if dec.get("pages"):
+    out = []
+    if "decay" in parts and dec.get("pages"):
         out.append(f"**Páginas que pierden clics** ({dec['window']}). Candidatas a actualizar antes de crear contenido nuevo:")
         out.append(_table(["Página", "Clics antes", "Clics ahora", "Cambio", "Posición antes → ahora"],
                           [[p["page"], _n(p["clicks_before"]), _n(p["clicks_now"]), f"{p['pct']}%",
                             f"{p['pos_before']} → {p['pos_now'] or 'ya no aparece'}"] for p in dec["pages"]]))
-    if land.get("visible_no_conv"):
-        out.append("**Llegan desde Google pero no convierten** (revisar CTA, formulario y contenido):")
-        out.append(_table(["Página", "Clics SC", "Sesiones orgánicas", "Eventos clave"],
-                          [[r["page"], _n(r["clicks"]), _n(r["sessions"]), "0"] for r in land["visible_no_conv"]]))
-    if land.get("conv_low_vis"):
-        out.append("**Convierten pero apenas se ven en Google** (posición > 10: reforzar SEO y enlazado interno):")
-        out.append(_table(["Página", "Eventos clave", "Posición", "Impresiones"],
-                          [[r["page"], f"{r['key_events']:g}", r["position"], _n(r["impressions"])] for r in land["conv_low_vis"]]))
-    if "measured" in land and not land["measured"]:
-        out += ["*GA4 no registra eventos clave en el tráfico orgánico: no se puede saber qué páginas convierten. "
-                "Configurar eventos clave (formulario, llamada, WhatsApp) en GA4.*", ""]
-    if ai.get("sessions"):
+    if "landings" in parts:
+        if land.get("visible_no_conv"):
+            out.append("**Llegan desde Google pero no convierten** (revisar CTA, formulario y contenido):")
+            out.append(_table(["Página", "Clics SC", "Sesiones orgánicas", "Eventos clave"],
+                              [[r["page"], _n(r["clicks"]), _n(r["sessions"]), "0"] for r in land["visible_no_conv"]]))
+        if land.get("conv_low_vis"):
+            out.append("**Convierten pero apenas se ven en Google** (posición > 10: reforzar SEO y enlazado interno):")
+            out.append(_table(["Página", "Eventos clave", "Posición", "Impresiones"],
+                              [[r["page"], f"{r['key_events']:g}", r["position"], _n(r["impressions"])] for r in land["conv_low_vis"]]))
+        if "measured" in land and not land["measured"]:
+            out += ["*GA4 no registra eventos clave en el tráfico orgánico: no se puede saber qué páginas convierten. "
+                    "Configurar eventos clave (formulario, llamada, WhatsApp) en GA4.*", ""]
+    if "ai" in parts and ai.get("sessions"):
         prev = ai.get("prev_sessions")
         out.append(f"**Visitas desde asistentes de IA:** {_n(ai['sessions'])} sesiones"
                    + (f" (mes anterior: {_n(prev)})" if prev is not None else "") + ". "
@@ -364,85 +430,106 @@ def _insights_section(ins: dict) -> list:
     return out
 
 
-def build_markdown(client: str, month: int, year: int, base: str, customer_id: str, mcp: str,
-                   ga4: dict, sc: dict, ads: dict, ads_error: str, scq: dict, paid: list,
-                   wp: dict, tracking: dict, trends: dict, posts: list, sig: dict, kw_rows: list,
-                   insights: dict = None) -> str:
-    cur = ads.get("currency", "€")
-    state = ads.get("conversion_state", "")
-    mes = f"{MESES.get(month, month).capitalize()} {year}"
-    out = [f"# Propuestas — {client.replace('_', ' ').title()} — {mes}  (INTERNO, no enviar al cliente)", "",
-           f"Web: {base} · Customer ID de Ads: {_cid(customer_id) or '—'} · "
-           f"MCP Elementor: `{mcp}`" if mcp else
-           f"Web: {base} · Customer ID de Ads: {_cid(customer_id) or '—'} · MCP Elementor: no configurado", ""]
+def _title(d: dict, kind: str, role: str) -> list:
+    mes = f"{MESES.get(d['month'], d['month']).capitalize()} {d['year']}"
+    return [f"# Archivo {kind} — {d['client'].replace('_', ' ').title()} — {mes}  (INTERNO · {role})", ""]
 
-    # 1. Resumen
-    m, s = ga4.get("metrics", {}), sc.get("summary", {})
-    paid_sessions = next((c["sessions"] for c in ga4.get("traffic_channels", []) if c["channel"] == "Paid Search"), 0)
-    out.append("## 1. Resumen de datos")
-    if ads and ads.get("impressions"):
-        conv_txt = (f"{ads['conversions']:g} {'conversión' if ads['conversions'] == 1 else 'conversiones'}, CPA {_money(ads['cpa'], cur)}" if state == "ok"
-                    else f"conversiones: {STATE_TEXT.get(state, state)}")
-        out.append(f"- **Google Ads:** {_money(ads['cost'], cur)} invertidos · {_n(ads['impressions'])} impresiones · "
-                   f"{_n(ads['clicks'])} clics · CTR {ads['ctr']}% · CPC {_money(ads['avg_cpc'], cur)} · {conv_txt}")
-    else:
-        out.append(f"- **Google Ads:** {ads_error or 'sin actividad este mes'}")
+
+def _summary_lines(d: dict, ads: bool, web: bool) -> list:
+    cur = d["ads"].get("currency", "€")
+    state = d["ads"].get("conversion_state", "")
+    m, s = d["ga4"].get("metrics", {}), d["sc"].get("summary", {})
+    paid_sessions = next((c["sessions"] for c in d["ga4"].get("traffic_channels", []) if c["channel"] == "Paid Search"), 0)
+    out = ["## 1. Resumen de datos"]
+    if ads:
+        a = d["ads"]
+        if a and a.get("impressions"):
+            conv_txt = (f"{a['conversions']:g} {'conversión' if a['conversions'] == 1 else 'conversiones'}, CPA {_money(a['cpa'], cur)}"
+                        if state == "ok" else f"conversiones: {STATE_TEXT.get(state, state)}")
+            out.append(f"- **Google Ads:** {_money(a['cost'], cur)} invertidos · {_n(a['impressions'])} impresiones · "
+                       f"{_n(a['clicks'])} clics · CTR {a['ctr']}% · CPC {_money(a['avg_cpc'], cur)} · {conv_txt}")
+        else:
+            out.append(f"- **Google Ads:** {d['ads_error'] or 'sin actividad este mes'}")
     out.append(f"- **Search Console:** {_n(s.get('impressions', 0))} impresiones · {_n(s.get('clicks', 0))} clics · "
-               f"CTR {s.get('ctr', 0)}% · posición media {s.get('position', 0)} · {len(scq.get('queries', []))} consultas")
-    out.append(f"- **GA4:** {_n(m.get('total_users', 0))} usuarios · {_n(m.get('sessions', 0))} sesiones "
-               f"({_n(paid_sessions)} de Paid Search) · rebote {m.get('bounce_rate', 0):.1f}%")
-    out.append(f"- **Web:** {len(wp.get('posts', []))} posts y {len(wp.get('pages', []))} páginas publicadas"
-               + (f" · último post {wp['posts'][0]['date']}" if wp.get("posts") and wp["posts"][0].get("date") else "")
-               + (f" · {wp['error']}" if wp.get("error") else ""))
-    if trends and not trends.get("error"):
-        out.append(f"- **Google Trends (ES, 12 meses):** " + (", ".join(f"«{k}» pico en {v}" for k, v in sig["peaks"].items()) or "sin picos")
-                   + f" · {len(sig['rising'])} consultas en subida")
+               f"CTR {s.get('ctr', 0)}% · posición media {s.get('position', 0)} · {len(d['scq'].get('queries', []))} consultas")
+    out.append(f"- **GA4:** {_n(m.get('total_users', 0))} usuarios · {_n(m.get('sessions', 0))} sesiones"
+               + (f" ({_n(paid_sessions)} de Paid Search)" if ads else "") + f" · rebote {m.get('bounce_rate', 0):.1f}%")
+    if web:
+        wp = d["wp"]
+        out.append(f"- **Web:** {len(wp.get('posts', []))} posts y {len(wp.get('pages', []))} páginas publicadas"
+                   + (f" · último post {wp['posts'][0]['date']}" if wp.get("posts") and wp["posts"][0].get("date") else "")
+                   + (f" · {wp['error']}" if wp.get("error") else ""))
+    t = d["trends"]
+    if t and not t.get("error"):
+        out.append("- **Google Trends (ES, 12 meses):** " + (", ".join(f"«{k}» pico en {v}" for k, v in d["sig"]["peaks"].items()) or "sin picos")
+                   + f" · {len(d['sig']['rising'])} consultas en subida")
     else:
-        out.append(f"- **Google Trends:** no disponible{' (' + trends['error'] + ')' if trends and trends.get('error') else ''}")
-    out.append("")
+        out.append(f"- **Google Trends:** no disponible{' (' + t['error'] + ')' if t and t.get('error') else ''}")
+    return out + [""]
 
-    # 2. Posts
-    out.append("## 2. Propuestas de post para el blog")
-    if posts:
-        for i, p in enumerate(posts, 1):
-            tl = len(p.get("titulo", ""))
-            out += ["", f"### Post {i}: {p['titulo']}" + (f"  ⚠️ {tl} caracteres" if tl > 60 else ""),
-                    f"- **Variante:** {p.get('variante', '—')}",
-                    f"- **Keyword principal:** {p.get('keyword_principal', '—')} · **secundarias:** {', '.join(p.get('keywords_secundarias', [])) or '—'}",
-                    f"- **Intención:** {p.get('intencion', '—')}",
-                    f"- **Slug:** `/{p.get('slug', '').strip('/')}/` · **Meta description:** {p.get('meta_description', '—')}",
-                    f"- **H1:** {p.get('h1', p['titulo'])}",
-                    "- **Estructura (H2):**"] + [f"  {j}. {h}" for j, h in enumerate(p.get("h2", []), 1)]
-            if p.get("enlaces_internos"):
-                out.append("- **Enlaces internos:** " + " · ".join(f"[{l.get('anchor') or l['url']}]({l['url']})" for l in p["enlaces_internos"]))
-            out += [f"- **CTA:** {p.get('cta', '—')}", f"- **Por qué ahora:** {p.get('por_que', '—')}"]
-            if p.get("existente"):
-                out.append(f"- ⚠️ **Actualizar en vez de crear:** ya existe [{p['existente']['title']}]({p['existente']['url']})")
+
+def _post_md(i: int, p: dict) -> list:
+    tl = len(p.get("titulo", ""))
+    tseo, meta = p.get("titulo_seo", ""), p.get("meta_description", "")
+    out = ["", f"### Post {i}: {p['titulo']}" + (f"  ⚠️ {tl} caracteres" if tl > 60 else ""),
+           f"- **Variante de título:** {p.get('variante', '—')}",
+           f"- **Palabra clave principal (Rank Math):** {p.get('keyword_principal', '—')} · **secundarias:** {', '.join(p.get('keywords_secundarias', [])) or '—'}",
+           f"- **Intención:** {p.get('intencion', '—')} · **Longitud orientativa:** {p.get('palabras', '—')} palabras (mínimo 600)",
+           f"- **Snippet:** título SEO ({len(tseo)} car.): {tseo or '—'} · meta ({len(meta)} car.): {meta or '—'} · URL: `/{p.get('slug', '').strip('/')}/`",
+           f"- **H1:** {p.get('h1') or p['titulo']}",
+           "- **Estructura** (H2 como pregunta → respuesta directa de 40-60 palabras, para el snippet destacado):"]
+    for j, sec in enumerate(p.get("secciones") or [{"h2": h} for h in p.get("h2", [])], 1):
+        if not isinstance(sec, dict):
+            continue
+        out.append(f"  {j}. **H2:** {sec.get('h2', '')}")
+        if sec.get("respuesta_directa"):
+            out.append(f"     - Respuesta directa: {sec['respuesta_directa']}")
+        out += [f"     - H3: {h}" for h in sec.get("h3", []) if h]
+    if p.get("faq"):
+        out.append("- **Preguntas frecuentes (para el schema FAQPage):**")
+        out += [f"  - {f.get('pregunta', '')} → {f.get('respuesta', '')}" for f in p["faq"] if isinstance(f, dict)]
+    out.append(f"- **Schema:** {', '.join(p.get('schema', [])) or 'Article'}")
+    out.append(f"- **Categoría:** {p.get('categoria', '—')} · **Etiquetas:** {', '.join(p.get('etiquetas', [])) or '—'} · **Extracto:** {p.get('extracto', '—')}")
+    if p.get("enlaces_internos"):
+        out.append("- **Enlaces internos (3-5):** " + " · ".join(f"[{l.get('anchor') or l['url']}]({l['url']})" for l in p["enlaces_internos"]))
+    if p.get("paginas_que_enlazan"):
+        out.append("- **Páginas existentes que deben enlazar a este post:** " + " · ".join(
+            f"{l['url']} (ancla «{l.get('anchor', '')}»)" for l in p["paginas_que_enlazan"]))
+    if p.get("enlaces_externos"):
+        out.append("- **Enlaces externos verificados:** " + " · ".join(
+            f"[{l.get('anchor') or l['url']}]({l['url']})" + (f" ({l['fuente']})" if l.get("fuente") else "") for l in p["enlaces_externos"]))
     else:
-        out.append("\n_Pendiente: la web no generó las propuestas (sin IA o sin cupo de Gemini). "
-                   "Tarea para Claude en la sección 6 a partir de las secciones 1 y 3._")
-    if wp.get("posts"):
-        out += ["", "**Posts ya publicados (no repetir):** " + " · ".join(p["title"] for p in wp["posts"][:15])]
-    out.append("")
+        out.append("- **Enlaces externos:** ninguno verificado. Busca 1-3 fuentes fiables"
+                   + (": " + "; ".join(p["fuentes_externas"]) if p.get("fuentes_externas") else "") + " y comprueba que responden")
+    if p.get("imagenes"):
+        out.append("- **Imágenes:** " + " · ".join(f"{im.get('idea', '')} (alt: «{im.get('alt', '')}»)" for im in p["imagenes"] if isinstance(im, dict)))
+    out += [f"- **CTA:** {p.get('cta', '—')}", f"- **Por qué ahora:** {p.get('por_que', '—')}"]
+    if p.get("avisos_brief"):
+        out.append("- ⚠️ **Avisos del brief** (corregirlos al escribir): " + "; ".join(p["avisos_brief"]))
+    if p.get("existente"):
+        out.append(f"- ⚠️ **Actualizar en vez de crear:** ya existe [{p['existente']['title']}]({p['existente']['url']})")
+    return out
 
-    # 3. Keywords
-    out += ["## 3. Palabras clave priorizadas",
-            _table(["Keyword", "Fuente", "Volumen", "Pos. orgánica", "Conv. Ads", "Uso propuesto"],
-                   [[r["kw"], r["fuente"], r["impr"], r["pos"], r["conv"], r["uso"]] for r in kw_rows])]
-    if sig["slash_dupes"]:
-        out.append("**URLs indexadas con y sin barra final** (contenido duplicado: redirigir una a la otra):")
-        out += [f"- {u} y {u}/" for u in sig["slash_dupes"]]
-        out.append("")
-    if sig["cannibal"]:
-        out.append("**Posible canibalización** (varias URLs para la misma consulta):")
-        out += [f"- «{c['query']}»: " + " · ".join(f"{r['page']} ({r['impressions']} impr., pos {r['position']})" for r in c["pages"])
-                for c in sig["cannibal"]]
-        out.append("")
 
-    out += _insights_section(insights or {})
+def _tracking_lines(t: dict, paid: list) -> list:
+    t = t or {}
+    ga4 = sorted(set(t.get("ga4", [])) | set(t.get("gtm_contains", {}).get("ga4", [])))
+    aw = sorted(set(t.get("ads", [])) | set(t.get("gtm_contains", {}).get("ads", [])))
+    out = [f"- GA4: {', '.join(ga4) or ('no visible en el HTML; Site Kit activo' if t.get('site_kit') else 'no detectado')}",
+           f"- Etiqueta de Google Ads: {', '.join(aw) or 'no detectada'}",
+           f"- Google Tag Manager: {', '.join(t.get('gtm', [])) or 'no'}",
+           f"- Cookies / Consent Mode: {', '.join(t.get('consent_tool', [])) or 'sin gestor detectado'} · "
+           f"Consent Mode {'detectado' if t.get('consent_mode') else 'no detectado'}",
+           f"- Formularios: {', '.join(t.get('forms', [])) or 'no detectados en la home ni en la landing'} · enlaces de teléfono: {t.get('phone_links', 0)}"]
+    if paid:
+        out.append(f"- GA4, tráfico de Paid Search: {sum(p['sessions'] for p in paid)} sesiones y {sum(p['key_events'] for p in paid):g} eventos clave")
+    return out
 
-    # 4. Ads
-    out.append("## 4. Google Ads: datos del mes")
+
+def _ads_blocks(d: dict) -> list:
+    ads, sig, paid = d["ads"], d["sig"], d["paid"]
+    cur, state = ads.get("currency", "€"), ads.get("conversion_state", "")
+    out = ["## 4. Google Ads: datos del mes"]
     if ads and ads.get("impressions"):
         show = state == "ok"
         out.append("**Campañas**")
@@ -470,32 +557,127 @@ def build_markdown(client: str, month: int, year: int, base: str, customer_id: s
                     for p in paid[:5]]
             out.append("")
     else:
-        out.append(f"_{ads_error or 'Sin actividad en el mes.'}_\n")
+        out.append(f"_{d['ads_error'] or 'Sin actividad en el mes.'}_\n")
+    return out
 
-    # 5. Conversiones
+
+# ── Archivo WEB (agente de Diseño web) ────────────────────────
+def build_web_markdown(d: dict) -> str:
+    sig, wp, ins, ads, paid, posts = d["sig"], d["wp"], d["insights"], d["ads"], d["paid"], d["posts"]
+    out = _title(d, "WEB", "para el agente de Diseño web")
+    out += [f"Web: {d['base']} · MCP Elementor: `{d['mcp'] or 'no configurado'}` · SEO: Rank Math", "",
+            "> **Tu trabajo:** crear los posts en BORRADOR con la configuración de Rank Math en verde, generar el Word de cada post "
+            "para el cliente y hacer los cambios y revisiones de la web. No publiques nada ni envíes nada al cliente. "
+            "Al terminar, guarda la hoja de entrega.", ""]
+    out += _summary_lines(d, ads=False, web=True)
+
+    out.append("## 2. Posts a crear")
+    if posts:
+        for i, p in enumerate(posts, 1):
+            out += _post_md(i, p)
+    else:
+        out.append("\n_Pendiente: la web no generó el brief (sin IA o sin cupo de Gemini). Propón 2 posts con la sección 3 y las "
+                   "reglas de Rank Math en verde, y valida cada uno con `validar_seo_post` antes de crear el borrador._")
+    if wp.get("posts"):
+        out += ["", "**Posts ya publicados (no repetir):** " + " · ".join(p["title"] for p in wp["posts"][:15])]
+    out.append("")
+
+    kw = [r for r in d["kw_rows"] if r["uso"].startswith(("post", "optimizar"))]
+    out += ["## 3. Palabras clave para el contenido",
+            _table(["Keyword", "Fuente", "Volumen", "Pos. orgánica", "Uso propuesto"],
+                   [[r["kw"], r["fuente"], r["impr"], r["pos"], r["uso"]] for r in kw])]
+
+    out.append("## 4. Páginas a revisar o actualizar")
+    blocks = _insight_blocks(ins, ("decay", "landings"))
+    out += blocks or ["_Sin páginas que pierdan clics ni cruces con datos este mes._", ""]
+    if ads.get("final_urls") or paid:
+        out.append("**Landings de Google Ads** (revisar coherencia con el anuncio, CTA, formulario y velocidad; los datos de Ads los lleva Marketing):")
+        out += [f"- Anuncio → {u['url']} ({u['clicks']} clics)" for u in ads.get("final_urls", [])]
+        out += [f"- GA4 Paid Search → {p['landing']}: {p['sessions']} sesiones, rebote {p['bounce_rate']}%, {p['key_events']:g} eventos clave"
+                for p in paid[:5]]
+        out.append("")
+    if sig["slash_dupes"]:
+        out.append("**URLs indexadas con y sin barra final** (contenido duplicado). Elementor no hace redirecciones: prepara la lista y se aplica en el hosting o con un plugin de redirecciones:")
+        out += [f"- {u} y {u}/" for u in sig["slash_dupes"]]
+        out.append("")
+    if sig["cannibal"]:
+        out.append("**Posible canibalización** (varias URLs para la misma consulta):")
+        out += [f"- «{c['query']}»: " + " · ".join(f"{r['page']} ({r['impressions']} impr., pos {r['position']})" for r in c["pages"])
+                for c in sig["cannibal"]]
+        out.append("")
+
+    out += ["## 5. Medición instalada en la web", *_tracking_lines(d["tracking"], paid), ""]
+
+    tasks = []
+    for i, p in enumerate(posts, 1):
+        tasks.append(f"Post {i} «{p['titulo']}»: `validar_seo_post` → crear el borrador (entrada, sin publicar) con título SEO, meta, slug, "
+                     "palabra clave, categoría, etiquetas, extracto, schema e imagen destacada de Rank Math → `crear_word_post` → anotarlo en la hoja de entrega")
+        tasks += [f"Enlazar a «{p['titulo']}» desde {l['url']} (ancla «{l.get('anchor', '')}»), editando una copia en borrador"
+                  for l in p.get("paginas_que_enlazan", [])]
+    if not posts:
+        tasks.append("Proponer 2 posts con las secciones 1 y 3, validarlos con `validar_seo_post`, crearlos como borrador y generar su Word")
+    for pg in (ins.get("decay") or {}).get("pages", [])[:3]:
+        if not pg["pos_now"]:
+            tasks.append(f"Comprobar si {pg['page']} sigue activa o se redirigió: ya no aparece en Google ({pg['clicks_before']} clics antes)")
+        else:
+            tasks.append(f"Actualizar {pg['page']}: ha perdido {pg['lost']} clics ({pg['pct']}%) en 3 meses (copia en borrador)")
+    for r in (ins.get("landings") or {}).get("visible_no_conv", [])[:2]:
+        tasks.append(f"Añadir llamada a la acción en {r['page']}: {r['clicks']} clics de Google y 0 conversiones")
+    for u in ads.get("final_urls", [])[:1]:
+        tasks.append(f"Revisar la landing {u['url']}: titular, CTA, formulario y velocidad")
+    for pg in sig["weak_landings"][:2]:
+        tasks.append(f"Mejorar la landing {pg['landing']}: rebote {pg['bounce_rate']}% y {pg['key_events']:g} eventos clave desde Paid Search")
+    if sig["slash_dupes"]:
+        tasks.append(f"Preparar las redirecciones de las URLs duplicadas con/sin barra final ({len(sig['slash_dupes'])})")
+    for c in sig["cannibal"][:2]:
+        tasks.append(f"Resolver la canibalización de «{c['query']}»: decidir qué página gana y enlazar la otra a ella")
+    tasks.append("Guardar la hoja de entrega con `guardar_entrega`")
+    out += ["## 6. Tareas"] + [f"- [ ] {t}" for t in tasks] + [""]
+
+    out += ["## 7. Entrega",
+            "Al terminar, `guardar_entrega` con una fila por pieza (Marketing la lee a continuación):", "",
+            "| Pieza | Tipo | ID | Estado | Enlace de edición | Word | SEO aplicado | Semáforo | Falta a mano |",
+            "|---|---|---|---|---|---|---|---|---|", ""]
+    return "\n".join(out)
+
+
+# ── Archivo MARKETING (agente de herramientas de Google) ──────
+def build_marketing_markdown(d: dict) -> str:
+    sig, ins, ads, paid, tracking = d["sig"], d["insights"], d["ads"], d["paid"], d["tracking"]
+    state = ads.get("conversion_state", "")
+    out = _title(d, "MARKETING", "para el agente de Marketing")
+    out += [f"Web: {d['base']} · Customer ID de Ads: {_cid(d['customer_id']) or '—'}", "",
+            "> **Tu trabajo:** análisis y decisiones con GA4, Search Console y Google Ads (solo lectura). No cambias la web: lo que haga "
+            "falta en ella se lo pides a Diseño web en la sección 7. Antes de empezar, lee la entrega de Diseño web si existe "
+            "(va al final de este archivo).", ""]
+    out += _summary_lines(d, ads=True, web=False)
+
+    out += ["## 2. Palabras clave priorizadas",
+            _table(["Keyword", "Fuente", "Volumen", "Pos. orgánica", "Conv. Ads", "Uso propuesto"],
+                   [[r["kw"], r["fuente"], r["impr"], r["pos"], r["conv"], r["uso"]] for r in d["kw_rows"]])]
+    if sig["cannibal"]:
+        out.append("**Posible canibalización** (varias URLs para la misma consulta; lo resuelve Diseño web):")
+        out += [f"- «{c['query']}»: " + " · ".join(f"{r['page']} ({r['impressions']} impr., pos {r['position']})" for r in c["pages"])
+                for c in sig["cannibal"]]
+        out.append("")
+
+    out += ["## 3. Tráfico y visibilidad"]
+    blocks = _insight_blocks(ins, ("ai", "landings"))
+    out += blocks or ["_Sin señales de tráfico desde IA ni cruces con datos este mes._", ""]
+
+    out += _ads_blocks(d)
     if ads and state != "ok":
         out.append(_conversion_section(ads, tracking, paid, sig))
 
-    # 6. Tareas
     tasks = []
-    ins = insights or {}
-    for p in (ins.get("decay") or {}).get("pages", [])[:3]:
-        if not p["pos_now"]:
-            tasks.append(f"Comprobar si {p['page']} sigue activa o se redirigió: ya no aparece en Google ({p['clicks_before']} clics antes, sección 3b)")
-        else:
-            tasks.append(f"Actualizar {p['page']}: ha perdido {p['lost']} clics ({p['pct']}%) en 3 meses (sección 3b, MCP Elementor)")
-    for r in (ins.get("landings") or {}).get("visible_no_conv", [])[:2]:
-        tasks.append(f"Añadir llamada a la acción en {r['page']}: {r['clicks']} clics de Google y 0 conversiones (sección 3b)")
     if ads and state and state != "ok":
         tasks.append("Configurar la medición de conversiones siguiendo la sección 5, antes de optimizar por CPA")
     for u in ads.get("final_urls", [])[:1]:
-        tasks.append(f"Revisar la landing {u['url']} frente a los titulares del anuncio, el CTA y el formulario (MCP Elementor)")
-    for p in sig["weak_landings"][:2]:
-        tasks.append(f"Mejorar la landing {p['landing']}: rebote {p['bounce_rate']}% y {p['key_events']:g} eventos clave desde Paid Search")
+        tasks.append(f"Comparar los titulares de los anuncios con la landing {u['url']}; si hay que cambiarla, pedirlo en la sección 7")
     if sig["negatives"]:
-        tasks.append("Revisar si son relevantes para el negocio y, si no lo son, añadirlas como negativas: " + ", ".join(f"«{t['term']}»" for t in sig["negatives"][:6]) + " (MCP Ads)")
+        tasks.append("Revisar si son relevantes para el negocio y, si no lo son, añadirlas como negativas: " + ", ".join(f"«{t['term']}»" for t in sig["negatives"][:6]))
     elif ads and ads.get("search_terms"):
-        tasks.append("Revisar los términos de búsqueda de la sección 4 y proponer negativas por relevancia (MCP Ads)")
+        tasks.append("Revisar los términos de búsqueda de la sección 4 y proponer negativas por relevancia")
     if sig["low_qs"]:
         tasks.append("Mejorar la relevancia anuncio/landing de las keywords con QS bajo: " + ", ".join(k["keyword"] for k in sig["low_qs"][:4]))
     for i in ads.get("impression_share", []):
@@ -504,27 +686,49 @@ def build_markdown(client: str, month: int, year: int, base: str, customer_id: s
         if i["lost_rank"] >= 30:
             tasks.append(f"Mejorar anuncios y QS en «{i['campaign']}»: pierde {i['lost_rank']}% de impresiones por ranking")
     if sig["paid_organic"]:
-        tasks.append("Decidir si seguir pujando por términos que ya están top 3 en orgánico: "
-                     + ", ".join(f"«{t['term']}»" for t in sig["paid_organic"][:4]))
-    if posts:
-        tasks += [f"Crear como borrador el post {i}: «{p['titulo']}» (MCP Elementor)" for i, p in enumerate(posts, 1)]
-    else:
-        tasks.append("Proponer 2 posts para el blog con las secciones 1 y 3 y crearlos como borrador (MCP Elementor)")
-    if sig["slash_dupes"]:
-        tasks.append(f"Redirigir las URLs duplicadas con/sin barra final ({len(sig['slash_dupes'])}, sección 3)")
-    for c in sig["cannibal"][:2]:
-        tasks.append(f"Resolver la canibalización de «{c['query']}» (sección 3)")
+        tasks.append("Decidir si seguir pujando por términos que ya están top 3 en orgánico: " + ", ".join(f"«{t['term']}»" for t in sig["paid_organic"][:4]))
     if ads and ads.get("impressions"):
-        tasks.append("Proponer 15 titulares (≤ 30 caracteres) y 4 descripciones (≤ 90) para los RSA con las keywords de la sección 3")
+        tasks.append("Proponer 15 titulares (≤ 30 caracteres) y 4 descripciones (≤ 90) para los RSA con las keywords de la sección 2")
+    tasks.append("Revisar la entrega de Diseño web y comprobar que lo hecho no cambia la medición")
+    tasks.append("Dejar los pedidos a diseño web con `guardar_pedidos_web` (sección 7)")
     tasks.append("Resumir lo hecho y lo pendiente para el próximo mes")
-    out += ["## 6. Tareas para la conversación de Claude"] + [f"- [ ] {t}" for t in tasks] + [""]
+    out += ["## 6. Tareas"] + [f"- [ ] {t}" for t in tasks] + [""]
+
+    # Pedidos candidatos a Diseño web
+    orders = []
+    for pg in sig["weak_landings"][:2]:
+        if pg["bounce_rate"] >= 60:
+            why, crit = (f"rebote del {pg['bounce_rate']}% en {pg['sessions']} sesiones de Paid Search",
+                         "rebote por debajo del 45 % en 30 días")
+        else:
+            why, crit = (f"{pg['sessions']} sesiones de Paid Search y {pg['key_events']:g} eventos clave",
+                         "al menos 1 evento clave registrado en 30 días (formulario, WhatsApp o llamada)")
+        orders.append(("Mejorar la landing para que genere conversiones", pg["landing"], why, crit))
+    if ads and state != "ok" and "Elementor Forms" in (tracking or {}).get("forms", []):
+        orders.append(("Redirigir el envío del formulario a una página de «gracias»", "formulario de contacto",
+                       "permite medir la conversión sin depender del evento del formulario",
+                       "la página /gracias/ existe, no está indexada y se alcanza solo tras enviar el formulario"))
+    if ads and ads.get("impressions") and not (tracking or {}).get("phone_links"):
+        orders.append(("Añadir teléfono o WhatsApp con enlace visible", (ads.get("final_urls") or [{"url": "landing de Ads"}])[0]["url"],
+                       "no hay enlaces de teléfono en la web: se pierden llamadas medibles",
+                       "enlace `tel:` o de WhatsApp visible sin hacer scroll en móvil"))
+    out += ["## 7. Pedidos a diseño web",
+            "Formato: `#n · Qué · Dónde · Por qué (dato) · Criterio de aceptación`. Los siguientes son candidatos automáticos: "
+            "confírmalos, edítalos o descártalos y guárdalos con `guardar_pedidos_web`.", ""]
+    if orders:
+        for n, (what, where, why, crit) in enumerate(orders, 1):
+            out.append(f"- **#{n} · {what}** · Dónde: {where} · Por qué: {why} · Criterio de aceptación: {crit}")
+    else:
+        out.append("_Sin candidatos automáticos este mes._")
+    out.append("")
     return "\n".join(out)
 
 
 # ── Orquestación ──────────────────────────────────────────────
 def generate_propuestas(client: str, month: int, year: int, ga4_data: dict, sc_data: dict,
-                        ads_data: dict, ads_error: str = "", insights: dict = None) -> str | None:
-    """Genera el .md en OUTPUT_DIR/internos/ y devuelve la ruta. Cada fuente extra es opcional."""
+                        ads_data: dict, ads_error: str = "", insights: dict = None,
+                        web: bool = True, marketing: bool = True) -> dict:
+    """Genera los .md en OUTPUT_DIR/internos/ y devuelve {'web': ruta|None, 'marketing': ruta|None}."""
     from extract_wp_content import extract_wp_content, site_base
     from check_tracking import check_tracking
     from extract_trends import extract_trends
@@ -558,13 +762,21 @@ def generate_propuestas(client: str, month: int, year: int, ga4_data: dict, sc_d
 
     sig = compute_signals(client, ads, scq, wp, trends, paid)
     kw_rows = keyword_table(sig)
-    posts = _ai_posts(client, base, month, year, sig, kw_rows, wp)
-    md = build_markdown(client, month, year, base, customer_id_for(client), os.getenv(f"WP_MCP_{cu}", "").strip(),
-                        ga4_data, sc_data, ads, ads_error, scq, paid, wp, tracking, trends, posts, sig, kw_rows, insights)
+    d = {"client": client, "month": month, "year": year, "base": base, "customer_id": customer_id_for(client),
+         "mcp": os.getenv(f"WP_MCP_{cu}", "").strip(), "ga4": ga4_data, "sc": sc_data, "ads": ads, "ads_error": ads_error,
+         "scq": scq, "paid": paid, "wp": wp, "tracking": tracking, "trends": trends, "sig": sig, "kw_rows": kw_rows,
+         "insights": insights or {}, "posts": []}
 
     out_dir = os.path.join(get_output_dir(), "internos")
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, f"PROPUESTAS_{cu}_{month:02d}_{year}.md")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(md)
-    return path
+    paths = {"web": None, "marketing": None}
+    for kind, on, build in (("WEB", web, build_web_markdown), ("MARKETING", marketing, build_marketing_markdown)):
+        if not on:
+            continue
+        if kind == "WEB":
+            d["posts"] = _ai_posts(client, base, month, year, sig, kw_rows, wp)
+        path = os.path.join(out_dir, f"PROPUESTAS_{kind}_{cu}_{month:02d}_{year}.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(build(d))
+        paths[kind.lower()] = path
+    return paths

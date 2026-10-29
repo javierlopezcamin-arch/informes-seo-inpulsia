@@ -1778,7 +1778,8 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
             add_table_slide(prs, "Campañas Principales", cols, rows,
                             "Campañas con mayor inversión durante el mes.",
                             s_label, s_num, col_widths=[3.7, 1.5, 1.1, 1.1, 1.3])
-        if show_conv and ads.get('conversions_by_action'):
+        # Con una sola acción la tabla no aporta nada que no diga ya la diapositiva de Ads
+        if show_conv and len(ads.get('conversions_by_action') or []) >= 2:
             add_table_slide(prs, "Conversiones por Tipo", ["Acción de conversión", "Conversiones"],
                             [[a['name'], fmt_int(a['conversions'])] for a in ads['conversions_by_action'][:8]],
                             f"Coste por conversión del mes: {ads['cpa_label']}.",

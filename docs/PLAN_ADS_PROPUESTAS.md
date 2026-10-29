@@ -160,7 +160,7 @@ Cada mes recibes un archivo PROPUESTAS_<cliente>_<mes>.md con datos reales y tar
 
 ## Requisitos antes de empezar
 - [ ] Customer ID de cada cliente a marcar (hoy solo Piscinas Riviera).
-- [ ] Confirmar que las acciones de conversión se pueden leer con el developer token actual.
+- [x] Confirmar que las acciones de conversión se pueden leer con el developer token actual (2026-10-29, acceso Explorador).
 - [x] `pip install --break-system-packages pytrends` en `/opt/homebrew/bin/python3`.
 - [x] MCP de Google Ads para el proyecto: lectura con `seo-inpulsia`; cambios a mano o con un agente de Ads.
 
@@ -168,14 +168,14 @@ Cada mes recibes un archivo PROPUESTAS_<cliente>_<mes>.md con datos reales y tar
 | Pieza | Archivo | Estado |
 |---|---|---|
 | Marca por cliente `ADS_EN_INFORME_<CLIENTE>` | `extract_google_ads.ads_enabled_for`, `main.py`, `app.py` | ✅ Piscinas Riviera marcado |
-| Extractor Ads v2 (conversiones, términos, QS, URLs, cuota, puja) | `extract_google_ads.py` | ⚠️ escrito, **sin probar contra la API**: refresh token caducado |
+| Extractor Ads v2 (conversiones, términos, QS, URLs, cuota, puja) | `extract_google_ads.py` | ✅ probado con Piscinas Riviera (sept. 2026) el 2026-10-29 con acceso **Explorador** (2.880 operaciones/día en cuentas reales). El Basic queda pendiente de la verificación de marca del proyecto `cappuccino` |
 | PDF sin conversiones si el estado no es `ok` | `analyze.py`, `generate_pptx.py`, `generate_pptx_v2.py` | ✅ |
 | Contenido publicado / etiquetas / Trends | `extract_wp_content.py`, `check_tracking.py`, `extract_trends.py` | ✅ probado con Piscinas Riviera y DTC Oral |
 | Detalle SC (250 queries) y landings Paid Search de GA4 | `extract_search_console.extract_sc_queries`, `extract_ga4.extract_paid_landings` | ✅ |
 | Archivo de propuestas (señales + 1 llamada Gemini, sin Claude de pago) | `generate_propuestas.py` | ✅ probado de principio a fin |
 | Subida a Drive como Google Doc en `<CLIENTE>/INTERNO` | `upload_drive.upload_internal_doc` | ⚠️ sin probar (no se ha subido nada) |
 | Web: checkbox, aviso de tanda, botón de descarga | `app.py` | ✅ compila; sin probar en el navegador |
-| MCP: `get_google_ads_overview`, `get_propuestas`, `list_clientes` con Ads | `mcp_server.py` | ✅ (Ads devuelve el error del token) |
+| MCP: `get_google_ads_overview`, `get_propuestas`, `list_clientes` con Ads | `mcp_server.py` | ✅ |
 | Guía del proyecto de Claude | `docs/PROYECTO_CLAUDE_CLIENTES.md` | ✅ |
 
 Las señales detectan preguntas en castellano y catalán, y no cuentan como canibalización la misma URL con otra barra

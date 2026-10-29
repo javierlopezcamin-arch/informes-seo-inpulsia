@@ -122,8 +122,10 @@ def compute_signals(client: str, ads: dict, scq: dict, wp: dict, trends: dict, p
 
     demand = [t for t in terms if not t["brand"] and (t["clicks"] > 0 or t["conversions"] > 0)
               and (t["organic"] is None or t["organic"] > 20) and not t["post"]]
-    negatives = ([t for t in terms if t["conversions"] == 0 and t["cost"] >= max(10, 3 * avg_cpc)]
-                 if state == "ok" else [])
+    # Con 1-2 clics no se sabe nada de un término; y el gasto no dice si es relevante para el
+    # negocio, así que son candidatas a revisar, no negativas automáticas.
+    negatives = ([t for t in terms if t["conversions"] == 0 and t["clicks"] >= 3
+                  and t["cost"] >= max(10, 3 * avg_cpc)] if state == "ok" else [])
     paid_organic = [t for t in terms if t["organic"] is not None and t["organic"] <= 3 and t["cost"] > 0]
 
     info = [q for q in queries if INFO_RE.search(" ".join(_words(q["query"])))
@@ -186,7 +188,7 @@ def keyword_table(sig: dict) -> list:
         add(t["term"], "Ads + SC", f"{t['clicks']} clics", t["organic"], t["conversions"],
             "revisar puja (ya top 3 en orgánico)" + (" · marca" if t["brand"] else ""))
     for t in sig["negatives"]:
-        add(t["term"], "Ads", f"{_money(t['cost'])}", t["organic"], 0, "negativa")
+        add(t["term"], "Ads", f"{_money(t['cost'])}", t["organic"], 0, "posible negativa (revisar)")
     return rows[:20]
 
 
@@ -379,7 +381,7 @@ def build_markdown(client: str, month: int, year: int, base: str, customer_id: s
     paid_sessions = next((c["sessions"] for c in ga4.get("traffic_channels", []) if c["channel"] == "Paid Search"), 0)
     out.append("## 1. Resumen de datos")
     if ads and ads.get("impressions"):
-        conv_txt = (f"{ads['conversions']:g} conversiones, CPA {_money(ads['cpa'], cur)}" if state == "ok"
+        conv_txt = (f"{ads['conversions']:g} {'conversión' if ads['conversions'] == 1 else 'conversiones'}, CPA {_money(ads['cpa'], cur)}" if state == "ok"
                     else f"conversiones: {STATE_TEXT.get(state, state)}")
         out.append(f"- **Google Ads:** {_money(ads['cost'], cur)} invertidos · {_n(ads['impressions'])} impresiones · "
                    f"{_n(ads['clicks'])} clics · CTR {ads['ctr']}% · CPC {_money(ads['avg_cpc'], cur)} · {conv_txt}")
@@ -491,7 +493,7 @@ def build_markdown(client: str, month: int, year: int, base: str, customer_id: s
     for p in sig["weak_landings"][:2]:
         tasks.append(f"Mejorar la landing {p['landing']}: rebote {p['bounce_rate']}% y {p['key_events']:g} eventos clave desde Paid Search")
     if sig["negatives"]:
-        tasks.append("Añadir como negativas, tras revisarlas: " + ", ".join(f"«{t['term']}»" for t in sig["negatives"][:6]) + " (MCP Ads)")
+        tasks.append("Revisar si son relevantes para el negocio y, si no lo son, añadirlas como negativas: " + ", ".join(f"«{t['term']}»" for t in sig["negatives"][:6]) + " (MCP Ads)")
     elif ads and ads.get("search_terms"):
         tasks.append("Revisar los términos de búsqueda de la sección 4 y proponer negativas por relevancia (MCP Ads)")
     if sig["low_qs"]:

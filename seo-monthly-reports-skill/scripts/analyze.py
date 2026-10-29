@@ -563,8 +563,10 @@ class SEOAnalyzer:
         )
         if show_conv:
             cpa = cost / conv
-            narrative += f"Se registraron {fmt_int(conv)} conversiones, a {money(cpa)} por conversión."
-            if a.get('conv_value'):
+            narrative += (f"Se registró 1 conversión, a {money(cpa)}." if round(conv) == 1 else
+                          f"Se registraron {fmt_int(conv)} conversiones, a {money(cpa)} por conversión.")
+            # Valor medio ≤ 1 € = valor por defecto de Google Ads (sin valor asignado): el ROAS no significa nada
+            if a.get('conv_value', 0) > conv:
                 narrative += f" El valor de conversión asciende a {money(a['conv_value'])} (ROAS {fmt_dec(a['conv_value'] / cost)}x)." if cost else ""
 
         d_clicks = pct_delta(clicks, p.get('clicks', 0)) if p else ""

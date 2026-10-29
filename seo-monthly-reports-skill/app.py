@@ -445,6 +445,10 @@ def get_ads_id(name):
             if m: return m.group(1)
     return ""
 
+def fmt_customer_id(cid):
+    d = re.sub(r"\D", "", cid or "")
+    return f"{d[:3]}-{d[3:6]}-{d[6:]}" if len(d) == 10 else (cid or "")
+
 def set_ads_id(name, ads_id):
     """Fija (o borra si va vacío) el Customer ID de Google Ads del cliente."""
     ads_id = re.sub(r"\D", "", ads_id or "")
@@ -1044,23 +1048,43 @@ with tab2:
             return True
         _sites = load_client_sites()
         shown = [c for c in clients if (not q.strip() or _norm(q) in _norm(c + _sites.get(c, ""))) and _match(c)]
-        st.caption(f"Mostrando {len(shown)} de {len(clients)}")
+        _ads_by = {c: get_ads_id(c) for c in clients}
+        _flag_by = {c: get_ads_flag(c) for c in clients}
+        st.caption(f"Mostrando {len(shown)} de {len(clients)} · {sum(1 for c in clients if _ads_by[c])} con Google Ads · "
+                   f"{sum(1 for c in clients if _flag_by[c])} con Ads y propuestas en el informe. "
+                   "Marca «Ads en informe» para incluir Google Ads en el informe y generar el archivo de propuestas.")
+
+        def _toggle_ads(c):
+            on = st.session_state[f"adsrow_{c}"]
+            set_ads_flag(c, on)
+            st.session_state.pop(f"edit_adsflag_{c}", None)  # que el formulario de edición no guarde el valor anterior
+            credentials_status.clear()
+            st.session_state["flash"] = ("success", f"{display_name(c)}: Google Ads y propuestas "
+                                         f"{'incluidos en' if on else 'quitados del'} informe.")
+
         for c in shown:
             entry = status_all.get(c)
+            ads_id = _ads_by[c]
             if entry:
                 pills = _pill("GA4", entry["ga4"]["ok"]) + _pill("SC", entry["sc"]["ok"])
-                if entry.get("ads") and get_ads_flag(c):
-                    pills += _pill("ADS", entry["ads"]["ok"])
-                pills += f'<span class="cli-age">{ac.age_label(entry)}</span>'
             else:
                 pills = '<span class="pill unk">Sin verificar</span>'
+            if ads_id:
+                # Con Customer ID: verde/rojo si ya se verificó el acceso a Ads, gris si aún no
+                _ads_st = ("ok" if entry["ads"]["ok"] else "bad") if entry and entry.get("ads") else "unk"
+                pills += f'<span class="pill {_ads_st}">ADS · {html.escape(fmt_customer_id(ads_id))}</span>'
+            if entry:
+                pills += f'<span class="cli-age">{ac.age_label(entry)}</span>'
             err = "".join(f'<div class="cli-err">{html.escape(t)}</div>'
                           for t in (ac.error_text(entry) if ac.state_of(entry) == "error" else "", ac.ads_error_text(entry)) if t)
-            rc1, rc2, rc3, rc4 = st.columns([7, 1.1, 1, 0.45], vertical_alignment="center")
+            rc1, rc5, rc2, rc3, rc4 = st.columns([5.0, 2.1, 1.1, 1, 0.45], vertical_alignment="center")
             with rc1:
                 st.markdown(f'<div class="cli"><div class="cli-id"><span class="cli-n">{html.escape(display_name(c))}</span>'
                             f'<span class="cli-site">{html.escape(_sites.get(c, ""))}</span></div>'
                             f'<span class="cli-meta">{pills}</span>{err}</div>', unsafe_allow_html=True)
+            with rc5:
+                if ads_id:
+                    st.checkbox("Ads en informe", value=_flag_by[c], key=f"adsrow_{c}", on_change=_toggle_ads, args=(c,))
             with rc2:
                 if st.button("Verificar", key=f"chk_{c}", use_container_width=True):
                     with st.spinner(f"Verificando {c}…"):
@@ -1127,6 +1151,7 @@ with tab2:
                         update_client(c, new_ga4.strip(), new_sc.strip(), new_logo.strip())
                         set_ads_id(c, new_ads)
                         set_ads_flag(c, new_ads_flag)
+                        st.session_state.pop(f"adsrow_{c}", None)  # que la casilla de la lista refleje lo guardado
                         if _do_save:
                             ac.forget_client(c)  # los datos cambiaron: el estado anterior ya no vale
                             st.session_state.pop("editing", None)

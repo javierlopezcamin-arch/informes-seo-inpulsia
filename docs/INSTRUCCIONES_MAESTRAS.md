@@ -1,5 +1,7 @@
 # Instrucciones maestras para el proyecto de Claude de cada cliente
 
+> ⚠️ **En sustitución.** El flujo pasa a dos agentes (Diseño web y Marketing) con archivos distintos: ver [PLAN_DOS_AGENTES.md](PLAN_DOS_AGENTES.md). `get_propuestas` ahora exige `tipo="web"` o `"marketing"` y ya no existe el archivo único. Las instrucciones nuevas llegan en la Fase 5.
+
 Para trabajar el archivo `PROPUESTAS_<CLIENTE>_<MM>_<AAAA>.md` en Claude Desktop (tarifa del plan, no API).
 Tres bloques: **1** instrucciones del proyecto (se pegan una vez), **2** primer mensaje de cada cliente,
 **3** mensaje mensual. Antes, la sección «Conectar».

@@ -12,6 +12,7 @@ Ver docs/MCP_SERVER_PLAN.md para el contexto de la decisión de arquitectura.
 import os
 import sys
 from datetime import date
+from typing import Union
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_DIR = os.path.dirname(SCRIPT_DIR)
@@ -78,7 +79,9 @@ def list_clientes() -> str:
         extra = ""
         if os.getenv(f"GOOGLE_ADS_CUSTOMER_ID_{name.upper()}"):
             marcado = os.getenv(f"ADS_EN_INFORME_{name.upper()}", "").lower() == "true"
-            extra = " · Google Ads" + (" (marcado: informe + propuestas)" if marcado else "")
+            extra = " · Google Ads" + (" (marcado: informe + archivo de marketing)" if marcado else "")
+        if os.getenv(f"WEB_EN_INFORME_{name.upper()}", "").lower() == "true":
+            extra += " · archivo de diseño web activado"
         if os.getenv(f"WP_MCP_{name.upper()}"):
             extra += f" · MCP web: {os.getenv(f'WP_MCP_{name.upper()}')}"
         lineas.append(f"- {name} ({fuentes}){extra}")
@@ -245,32 +248,202 @@ def get_google_ads_overview(cliente: str, mes: int = None, anio: int = None) -> 
     return "\n".join(lines)
 
 
+# ── Archivos de los dos agentes (Diseño web → Marketing) ───────
+def _internos() -> str:
+    from utils import get_output_dir
+    return os.path.join(get_output_dir(), "internos")
+
+
+def _key(cliente: str) -> str:
+    _resolve_client(cliente)  # falla si el cliente no existe: así el nombre de archivo es siempre seguro
+    return cliente.strip().upper().replace(" ", "_")
+
+
+def _find(prefix: str, mes: int = None, anio: int = None):
+    """Archivo `<prefix>_<MM>_<AAAA>.md` pedido, o el más reciente si no se indica el mes."""
+    import glob
+    folder = _internos()
+    if mes:
+        path = os.path.join(folder, f"{prefix}_{int(mes):02d}_{anio or date.today().year}.md")
+        return path if os.path.exists(path) else None
+    found = sorted(glob.glob(os.path.join(folder, f"{prefix}_*.md")), key=os.path.getmtime)
+    return found[-1] if found else None
+
+
+def _read(path: str) -> str:
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def _save(prefix: str, contenido: str, mes: int = None, anio: int = None) -> str:
+    if not contenido or not contenido.strip():
+        raise ValueError("El contenido está vacío")
+    if len(contenido) > 200_000:
+        raise ValueError("El contenido supera los 200.000 caracteres")
+    m, y = _resolve_month_year(mes, anio)
+    os.makedirs(_internos(), exist_ok=True)
+    path = os.path.join(_internos(), f"{prefix}_{m:02d}_{y}.md")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(contenido.strip() + "\n")
+    return path
+
+
 @mcp.tool()
-def get_propuestas(cliente: str, mes: int = None, anio: int = None) -> str:
+def get_propuestas(cliente: str, tipo: str = "web", mes: int = None, anio: int = None) -> str:
     """
-    Devuelve el archivo INTERNO de propuestas del mes (posts para el blog, keywords, datos de Ads,
-    seguimiento de conversiones y tareas), tal como lo generó la web de informes.
+    Devuelve el archivo INTERNO del mes para un agente, tal como lo generó la web de informes.
+    - tipo="web": para el agente de Diseño web (posts con brief completo, páginas a revisar). Si Marketing
+      dejó pedidos que aún no se han atendido (más recientes que la última entrega), se añaden al final.
+    - tipo="marketing": para el agente de Marketing (Ads, GA4, Search Console, pedidos). Si Diseño web ya
+      guardó su entrega, se añade al final.
     Si no se indica mes, devuelve el más reciente del cliente.
 
     Args:
         cliente: nombre del cliente (ej: "piscinas_riviera")
+        tipo: "web" o "marketing"
         mes: número de mes 1-12 (opcional)
         anio: año (opcional)
     """
-    import glob
-    from utils import get_output_dir
-    key = cliente.strip().upper().replace(" ", "_")
-    folder = os.path.join(get_output_dir(), "internos")
-    if mes:
-        path = os.path.join(folder, f"PROPUESTAS_{key}_{int(mes):02d}_{anio or date.today().year}.md")
-        candidates = [path] if os.path.exists(path) else []
-    else:
-        candidates = sorted(glob.glob(os.path.join(folder, f"PROPUESTAS_{key}_*.md")), key=os.path.getmtime)
-    if not candidates:
-        return (f"No hay archivo de propuestas de '{cliente}' en {folder}. "
-                "Se genera desde la web de informes para clientes con Google Ads marcado.")
-    with open(candidates[-1], encoding="utf-8") as f:
-        return f.read()
+    tipo = (tipo or "").strip().lower()
+    if tipo not in ("web", "marketing"):
+        return 'El tipo debe ser "web" o "marketing".'
+    key = _key(cliente)
+    path = _find(f"PROPUESTAS_{tipo.upper()}_{key}", mes, anio)
+    if not path:
+        return (f"No hay archivo {tipo.upper()} de '{cliente}' en {_internos()}. Se genera desde la web de informes: "
+                + ("activando «Archivo de diseño web» (WEB_EN_INFORME_%s=true)." % key if tipo == "web"
+                   else "marcando Google Ads (ADS_EN_INFORME_%s=true)." % key))
+    text = _read(path)
+    entrega = _find(f"ENTREGA_WEB_{key}")
+    pedidos = _find(f"PEDIDOS_WEB_{key}")
+    if tipo == "marketing" and entrega:
+        text += f"\n\n---\n## Entrega de Diseño web ({os.path.basename(entrega)})\n\n" + _read(entrega)
+    if tipo == "web" and pedidos and (not entrega or os.path.getmtime(pedidos) > os.path.getmtime(entrega)):
+        text += f"\n\n---\n## Pedidos pendientes de Marketing ({os.path.basename(pedidos)})\n\n" + _read(pedidos)
+    return text
+
+
+@mcp.tool()
+def guardar_entrega(cliente: str, contenido: str, mes: int = None, anio: int = None) -> str:
+    """
+    El agente de Diseño web guarda su HOJA DE ENTREGA (una fila por pieza: ID, estado, enlace de edición,
+    Word, SEO aplicado, semáforo y lo que falta a mano). Marketing la lee con get_propuestas(tipo="marketing")
+    o get_entrega. Reemplaza la entrega de ese mes. Solo escribe en la carpeta interna.
+
+    Args:
+        cliente: nombre del cliente
+        contenido: la hoja de entrega en Markdown
+        mes: número de mes 1-12 (opcional; por defecto el actual)
+        anio: año (opcional)
+    """
+    return "Entrega guardada: " + _save(f"ENTREGA_WEB_{_key(cliente)}", contenido, mes, anio)
+
+
+@mcp.tool()
+def get_entrega(cliente: str, mes: int = None, anio: int = None) -> str:
+    """Devuelve la hoja de entrega de Diseño web (la del mes indicado o la más reciente)."""
+    path = _find(f"ENTREGA_WEB_{_key(cliente)}", mes, anio)
+    return _read(path) if path else f"Todavía no hay entrega de Diseño web para '{cliente}'."
+
+
+@mcp.tool()
+def guardar_pedidos_web(cliente: str, contenido: str, mes: int = None, anio: int = None) -> str:
+    """
+    El agente de Marketing guarda sus PEDIDOS A DISEÑO WEB. Formato por pedido:
+    `#n · Qué · Dónde (URL) · Por qué (dato del archivo) · Criterio de aceptación`.
+    Diseño web los verá al final de get_propuestas(tipo="web") hasta que guarde una entrega nueva.
+    Reemplaza los pedidos de ese mes.
+
+    Args:
+        cliente: nombre del cliente
+        contenido: los pedidos en Markdown
+        mes: número de mes 1-12 (opcional; por defecto el actual)
+        anio: año (opcional)
+    """
+    return "Pedidos guardados: " + _save(f"PEDIDOS_WEB_{_key(cliente)}", contenido, mes, anio)
+
+
+@mcp.tool()
+def get_pedidos_web(cliente: str, mes: int = None, anio: int = None) -> str:
+    """Devuelve los pedidos de Marketing a Diseño web (los del mes indicado o los más recientes)."""
+    path = _find(f"PEDIDOS_WEB_{_key(cliente)}", mes, anio)
+    return _read(path) if path else f"No hay pedidos de Marketing para '{cliente}'."
+
+
+# ── Posts: semáforo de Rank Math y Word para el cliente ─────────
+POST_DOC = """
+    El post es un objeto con estos campos:
+      titulo (H1), slug, titulo_seo, meta_description, keyword_principal, keywords_secundarias[],
+      categoria, etiquetas[], extracto, schema[] ("Article", "FAQPage", "HowTo"),
+      imagen_destacada_alt, tabla_contenidos (true si el post lleva el widget de tabla de contenidos),
+      contenido (Markdown SIN el H1: `## ` H2, `### ` H3, `> ` llamada a la acción, listas con `-` o `1.`,
+      tablas con `|`, imágenes como `![texto alternativo](idea de la imagen)`, enlaces como
+      `[ancla](https://…)` o `[ancla](/ruta/)`; las preguntas frecuentes van bajo un H2 «Preguntas
+      frecuentes» con cada pregunta como H3 seguida de su respuesta).
+"""
+
+
+def _post_context(post, cliente: str):
+    import json
+    from extract_wp_content import extract_wp_content, site_base
+    if isinstance(post, str):
+        post = json.loads(post)
+    if not isinstance(post, dict):
+        raise ValueError("El post debe ser un objeto con los campos indicados")
+    key = _key(cliente)
+    sc_url = os.getenv(f"SEARCH_CONSOLE_URL_{key}", "")
+    base = site_base(sc_url) if sc_url else ""
+    existing = []
+    try:
+        wp = extract_wp_content(sc_url) if sc_url else {}
+        existing = [{"title": x.get("title", ""), "url": x.get("url", "")} for x in wp.get("posts", []) + wp.get("pages", [])]
+    except Exception:
+        pass
+    return post, key, base, existing
+
+
+@mcp.tool()
+def validar_seo_post(post: Union[dict, str], cliente: str, comprobar_enlaces: bool = True) -> str:
+    """
+    Semáforo de Rank Math para un post ANTES de crear el borrador: réplica orientativa de los tests
+    (título SEO, meta, URL, palabra clave, densidad, H1-H3, enlaces internos y externos, schema, snippets
+    destacados…). Devuelve qué corregir. Verde = todos los tests en verde. Usarlo en bucle hasta que no
+    queden rojos ni naranjas (o justificar el que no pueda cumplirse). No usa IA ni gasta cuota.
+    """ + POST_DOC + """
+    Args:
+        post: el post (objeto)
+        cliente: nombre del cliente (para comprobar enlaces y que la palabra clave no esté ya usada)
+        comprobar_enlaces: si es true, comprueba que los enlaces responden (unos segundos)
+    """
+    import seo_posts
+    post, key, base, existing = _post_context(post, cliente)
+    return seo_posts.render_report(seo_posts.validate_post(post, base, existing, check_links=comprobar_enlaces))
+
+
+@mcp.tool()
+def crear_word_post(post: Union[dict, str], cliente: str, mes: int = None, anio: int = None) -> str:
+    """
+    Genera el WORD del post para que Javi lo envíe al cliente: texto completo con formato Inpulsia y, al final,
+    la «Ficha SEO». No incluye nada interno (ni cifras de Ads, ni volúmenes, ni IDs, ni el semáforo). Cada
+    llamada crea una versión nueva (v1, v2…): usarlo otra vez cuando el cliente pida cambios.
+    Se guarda en <carpeta de informes>/para_cliente/<CLIENTE>/.
+    """ + POST_DOC + """
+    Args:
+        post: el post (objeto)
+        cliente: nombre del cliente
+        mes: número de mes 1-12 (opcional; por defecto el actual)
+        anio: año (opcional)
+    """
+    import seo_posts
+    from word_post import create_word
+    post, key, base, existing = _post_context(post, cliente)
+    res = create_word(post, key, base, mes, anio)
+    val = seo_posts.validate_post(post, base, existing)
+    out = f"Word creado (v{res['version']}): {res['path']}"
+    rojos = [t["nombre"] for t in val["tests"] if t["estado"] == "rojo"]
+    if rojos:
+        out += "\nAVISO: el semáforo de Rank Math tiene rojos; corrígelos antes de enviarlo: " + "; ".join(rojos)
+    return out
 
 
 if __name__ == "__main__":

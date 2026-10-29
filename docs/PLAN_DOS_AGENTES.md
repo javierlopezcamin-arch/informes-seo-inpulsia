@@ -1,6 +1,6 @@
 # Plan: dos archivos, dos agentes (Diseño web → Marketing)
 
-Estado: **planificado** (2026-10-29, v2: el cliente revisa **Word**, no un enlace). Sustituye al reparto de
+Estado: **Fases 1-3 implementadas** (2026-10-29); pendientes la Fase 0 (pruebas reales con el Elementor), la 4 y la 5. v2: el cliente revisa **Word**, no un enlace. Sustituye al reparto de
 «un archivo para todo» de `PLAN_ADS_PROPUESTAS.md` y de `INSTRUCCIONES_MAESTRAS.md`.
 
 ## Idea
@@ -162,3 +162,27 @@ Marketing = solo `seo-inpulsia`.
 - **Entrega entre agentes:** por el MCP local, con copiar y pegar como respaldo.
 - **Credenciales de WordPress:** no se guardan en la web; si hace falta una herramienta local para el SEO se decide
   aparte.
+
+## Estado de la implementación (2026-10-29)
+
+| Fase | Estado | Dónde |
+|---|---|---|
+| 1 · Dividir el generador | ✅ probado con Piscinas Riviera (sept. 2026) | `generate_propuestas.py` → `PROPUESTAS_WEB_…md` y `PROPUESTAS_MARKETING_…md`; `main.py` imprime `PROPUESTAS WEB:` / `PROPUESTAS MARKETING:`; la web los reconoce y ofrece las dos descargas (la interfaz completa es la Fase 4) |
+| 2 · Brief completo del post | ✅ probado con 1 llamada real a Gemini | `_ai_posts` pide snippet, H2 con respuesta directa, FAQ, schema, enlaces internos/externos y alt; los enlaces externos se descartan si no responden; avisos del brief (`brief_issues`) |
+| 3 · Herramientas del conector local | ✅ probadas llamando a cada una | `mcp_server.py`: `get_propuestas(tipo)`, `guardar_entrega`/`get_entrega`, `guardar_pedidos_web`/`get_pedidos_web`, `validar_seo_post`, `crear_word_post` |
+| Semáforo Rank Math y Word | ✅ 18 tests unitarios (`python3 -m unittest discover -s tests`) | `scripts/seo_posts.py`, `scripts/word_post.py` (`python-docx`) |
+
+**Cómo se activa (hasta la Fase 4):** archivo Web con `WEB_EN_INFORME_<CLIENTE>=true` en el `.env`; archivo Marketing con la
+casilla de Google Ads que ya existe (`ADS_EN_INFORME_<CLIENTE>`).
+
+**Cambios sobre el plan:**
+- Se añadieron `guardar_pedidos_web` y `get_pedidos_web` para que Marketing deje los pedidos sin copiar y pegar. Los pedidos
+  pendientes se muestran al final de `get_propuestas(tipo="web")` mientras sean más recientes que la última entrega.
+- `get_propuestas(tipo="marketing")` añade al final la última entrega de Diseño web.
+- El contenido del post se pasa en Markdown (`## `, `### `, `> ` para la llamada a la acción, enlaces `[ancla](url)`,
+  imágenes `![alt](idea)`); el mismo texto alimenta el semáforo y el Word.
+- El semáforo no replica la nota numérica de Rank Math: es VERDE solo si todos los tests están en verde. Las comprobaciones de
+  «palabra clave no usada» y de densidad son aproximadas hasta calibrar (Fase 0).
+
+**Pendiente:** Fase 0 (Elementor + Rank Math reales: crear borrador, escribir los campos SEO, calibrar el semáforo), Fase 4 (web:
+interruptores por cliente, lista de Word) y Fase 5 (instrucciones de los dos proyectos de Claude).

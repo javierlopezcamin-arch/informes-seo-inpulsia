@@ -1087,7 +1087,7 @@ with tab2:
         st.caption(f"Mostrando {len(shown)} de {len(clients)} · {sum(1 for c in clients if _ads_by[c])} con Google Ads · "
                    f"{sum(1 for c in clients if _flag_by[c])} con Ads en el informe · "
                    f"{sum(1 for c in clients if _caps_by[c])} con capturas. "
-                   "«Ads en informe» añade Google Ads y el archivo de marketing; con capturas se genera además el archivo de diseño web.")
+                   "«Ads en informe» añade Google Ads y genera los archivos de marketing y de diseño web; con capturas se genera también el de diseño web.")
 
         def _toggle_ads(c):
             on = st.session_state[f"adsrow_{c}"]

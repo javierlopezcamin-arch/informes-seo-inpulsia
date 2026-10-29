@@ -324,7 +324,7 @@ def main():
 
     # ── 5b. Archivos internos: WEB (WEB_EN_INFORME_<C>) y MARKETING (ADS_EN_INFORME_<C>) ──
     props = {}
-    web_on = web_enabled_for(client)
+    web_on = web_enabled_for(client) or marked  # con Ads marcado también se genera el archivo de diseño web
     if (marked or web_on) and not args.no_propuestas:
         print(f"\n📝 Generando archivos de propuestas (interno)...")
         try:

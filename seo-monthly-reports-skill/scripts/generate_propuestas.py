@@ -204,8 +204,12 @@ def _norm_kw(p: dict) -> str:
 
 
 def web_enabled_for(client: str) -> bool:
-    """Archivo de diseño web activado para el cliente (WEB_EN_INFORME_<CLIENTE>=true)."""
-    return os.getenv(f"WEB_EN_INFORME_{client.upper()}", "").strip().lower() in ("true", "1", "si", "sí")
+    """Archivo de diseño web: se genera si el cliente tiene capturas guardadas o WEB_EN_INFORME_<CLIENTE>=true."""
+    if os.getenv(f"WEB_EN_INFORME_{client.upper()}", "").strip().lower() in ("true", "1", "si", "sí"):
+        return True
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    d = os.path.join(base, "capturas", client.upper().replace(" ", "_"))
+    return os.path.isdir(d) and any(f.lower().endswith((".png", ".jpg", ".jpeg")) for f in os.listdir(d))
 
 
 def _ai_posts(client: str, base: str, month: int, year: int, sig: dict, kw_rows: list, wp: dict) -> list:

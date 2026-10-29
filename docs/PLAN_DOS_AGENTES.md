@@ -1,6 +1,6 @@
 # Plan: dos archivos, dos agentes (Diseño web → Marketing)
 
-Estado: **Fases 1-3 implementadas** (2026-10-29); pendientes la Fase 0 (pruebas reales con el Elementor), la 4 y la 5. v2: el cliente revisa **Word**, no un enlace. Sustituye al reparto de
+Estado: **Fases 1-5 implementadas** (2026-10-29); pendiente la Fase 0 (pruebas reales con el Elementor). Instrucciones de los agentes: [INSTRUCCIONES_AGENTES.md](INSTRUCCIONES_AGENTES.md). v2: el cliente revisa **Word**, no un enlace. Sustituye al reparto de
 «un archivo para todo» de `PLAN_ADS_PROPUESTAS.md` y de `INSTRUCCIONES_MAESTRAS.md`.
 
 ## Idea

@@ -282,6 +282,9 @@ html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;colo
 /* Botones de cada fila de cliente: más bajos; borrar como icono gris que se enciende en coral */
 [class*="st-key-chk_"] [data-testid="stButton"] button,[class*="st-key-edit_"] [data-testid="stButton"] button{min-height:30px!important;padding:2px 10px!important;}
 [class*="st-key-chk_"] button p,[class*="st-key-edit_"] button p{font-size:12px!important;}
+[class*="st-key-adsrow_"]{display:flex;align-items:center;min-height:30px;margin:0!important;}
+[class*="st-key-adsrow_"] label{margin:0!important;align-items:center!important;white-space:nowrap;}
+[class*="st-key-adsrow_"] p{font-size:12px!important;margin:0!important;line-height:1.2!important;}
 [class*="st-key-del_"] [data-testid="stButton"] button[kind="tertiary"]{background:transparent!important;border:none!important;box-shadow:none!important;min-height:30px!important;padding:2px 6px!important;opacity:.45;filter:grayscale(1);transition:opacity .15s!important;}
 [class*="st-key-del_"] [data-testid="stButton"] button[kind="tertiary"]:hover{opacity:1;filter:none;transform:none!important;}
 [data-testid="stTextInput"] input::placeholder{color:var(--muted)!important;opacity:1!important;}
@@ -462,25 +465,49 @@ def set_ads_id(name, ads_id):
         content = re.sub(rf"(SEARCH_CONSOLE_URL_{name}\s*=\s*\S+)", rf"\1\nGOOGLE_ADS_CUSTOMER_ID_{name}={ads_id}", content, count=1)
     write_env(ENV_PATH, content)
 
-def get_ads_flag(name):
+def _get_flag(name, var):
     with open(ENV_PATH, "r", encoding="utf-8") as f:
         for line in f:
-            m = re.match(rf"\s*ADS_EN_INFORME_{name}\s*=\s*(\S+)", line)
+            m = re.match(rf"\s*{var}_{name}\s*=\s*(\S+)", line)
             if m: return m.group(1).strip().lower() in ("true", "1", "si", "sí")
     return False
 
-def set_ads_flag(name, on):
-    """Marca (o desmarca) el cliente para incluir Google Ads + archivo de propuestas."""
+def _set_flag(name, var, on):
     with open(ENV_PATH, "r", encoding="utf-8") as f:
         content = f.read()
-    pat = rf"(?m)^\s*ADS_EN_INFORME_{name}\s*=.*\n?"
-    content = re.sub(pat, "", content)
+    content = re.sub(rf"(?m)^\s*{var}_{name}\s*=.*\n?", "", content)
     if on:
-        anchor = rf"((?:GOOGLE_ADS_CUSTOMER_ID|SEARCH_CONSOLE_URL)_{name}\s*=\s*\S+)"
+        anchor = rf"((?:ADS_EN_INFORME|GOOGLE_ADS_CUSTOMER_ID|SEARCH_CONSOLE_URL)_{name}\s*=\s*\S+)"
         m = list(re.finditer(anchor, content))
         if m:
-            content = content[:m[-1].end()] + f"\nADS_EN_INFORME_{name}=true" + content[m[-1].end():]
+            content = content[:m[-1].end()] + f"\n{var}_{name}=true" + content[m[-1].end():]
     write_env(ENV_PATH, content)
+
+def get_ads_flag(name):
+    return _get_flag(name, "ADS_EN_INFORME")
+
+def set_ads_flag(name, on):
+    """Marca (o desmarca) el cliente para incluir Google Ads + archivo de marketing."""
+    _set_flag(name, "ADS_EN_INFORME", on)
+
+def get_web_flag(name):
+    return _get_flag(name, "WEB_EN_INFORME")
+
+def set_web_flag(name, on):
+    """Marca (o desmarca) el cliente para generar el archivo de diseño web (posts, Word)."""
+    _set_flag(name, "WEB_EN_INFORME", on)
+
+def count_caps(name):
+    d = os.path.join(BASE_DIR, "capturas", name)
+    if not os.path.isdir(d): return 0
+    return sum(1 for e in os.listdir(d) if e.lower().endswith((".png", ".jpg", ".jpeg")))
+
+def client_words(name):
+    """Word de posts ya creados para el cliente, más recientes primero."""
+    d = os.path.join(get_output_dir(), "para_cliente", name)
+    if not os.path.isdir(d): return []
+    fs = [os.path.join(d, e) for e in os.listdir(d) if e.lower().endswith(".docx")]
+    return sorted(fs, key=os.path.getmtime, reverse=True)
 
 def get_client_data(name):
     ga4_id, sc_url = "", ""
@@ -504,6 +531,7 @@ def delete_client(name):
         if re.match(rf"\s*LOGO_URL_{name}\s*=", line): continue
         if re.match(rf"\s*GOOGLE_ADS_CUSTOMER_ID_{name}\s*=", line): continue
         if re.match(rf"\s*ADS_EN_INFORME_{name}\s*=", line): continue
+        if re.match(rf"\s*WEB_EN_INFORME_{name}\s*=", line): continue
         if re.match(rf"\s*WP_MCP_{name}\s*=", line): continue
         if skip and line.strip() == "": skip = False; continue
         if not skip: new_lines.append(line)
@@ -987,7 +1015,7 @@ with tab2:
     with tb1:
         q = st.text_input("Buscar", placeholder="Buscar cliente…", key="cli_q", label_visibility="collapsed")
     with tb2:
-        flt = st.selectbox("Estado", ["Todos", "Con error", "Sin verificar", "Con acceso", "Con Ads marcado", "Con Customer ID", "Sin Customer ID", "Error en Ads"], key="cli_f", label_visibility="collapsed")
+        flt = st.selectbox("Estado", ["Todos", "Con error", "Sin verificar", "Con acceso", "Con Ads marcado", "Con capturas", "Sin capturas", "Con Customer ID", "Sin Customer ID", "Error en Ads"], key="cli_f", label_visibility="collapsed")
     with tb3:
         verify_all = st.button("Verificar todos", type="primary", use_container_width=True, key="verify_all", disabled=not clients)
     if verify_all:
@@ -1045,17 +1073,21 @@ with tab2:
             if flt == "Todos": return True
             if flt in _states_by: return ac.state_of(status_all.get(c)) == _states_by[flt]
             if flt == "Con Ads marcado": return get_ads_flag(c)
+            if flt == "Con capturas": return _caps_by[c] > 0
+            if flt == "Sin capturas": return _caps_by[c] == 0
             if flt == "Con Customer ID": return bool(get_ads_id(c))
             if flt == "Sin Customer ID": return not get_ads_id(c)
             if flt == "Error en Ads": return bool(ac.ads_error_text(status_all.get(c)))
             return True
         _sites = load_client_sites()
+        _caps_by = {c: count_caps(c) for c in clients}
         shown = [c for c in clients if (not q.strip() or _norm(q) in _norm(c + _sites.get(c, ""))) and _match(c)]
         _ads_by = {c: get_ads_id(c) for c in clients}
         _flag_by = {c: get_ads_flag(c) for c in clients}
         st.caption(f"Mostrando {len(shown)} de {len(clients)} · {sum(1 for c in clients if _ads_by[c])} con Google Ads · "
-                   f"{sum(1 for c in clients if _flag_by[c])} con Ads y propuestas en el informe. "
-                   "Marca «Ads en informe» para incluir Google Ads en el informe y generar el archivo de propuestas.")
+                   f"{sum(1 for c in clients if _flag_by[c])} con Ads en el informe · "
+                   f"{sum(1 for c in clients if _caps_by[c])} con capturas. "
+                   "«Ads en informe» añade Google Ads y el archivo de marketing; con capturas se genera además el archivo de diseño web.")
 
         def _toggle_ads(c):
             on = st.session_state[f"adsrow_{c}"]
@@ -1076,6 +1108,8 @@ with tab2:
                 # Con Customer ID: verde/rojo si ya se verificó el acceso a Ads, gris si aún no
                 _ads_st = ("ok" if entry["ads"]["ok"] else "bad") if entry and entry.get("ads") else "unk"
                 pills += f'<span class="pill {_ads_st}">ADS · {html.escape(fmt_customer_id(ads_id))}</span>'
+            _nc = _caps_by[c]
+            pills += (f'<span class="pill ok">CAPTURAS · {_nc}</span>' if _nc else '<span class="pill unk">SIN CAPTURAS</span>')
             if entry:
                 pills += f'<span class="cli-age">{ac.age_label(entry)}</span>'
             err = "".join(f'<div class="cli-err">{html.escape(t)}</div>'
@@ -1109,6 +1143,12 @@ with tab2:
                 new_logo = st.text_input("Logo (opcional)", value=get_logo_url(c), key=f"edit_logo_{c}", placeholder="https://cliente.com/logo.png")
                 new_ads  = st.text_input("Google Ads Customer ID (opcional)", value=get_ads_id(c), key=f"edit_ads_{c}", placeholder="123-456-7890")
                 new_ads_flag = st.checkbox("Incluir Google Ads y archivo de propuestas en el informe", value=get_ads_flag(c), key=f"edit_adsflag_{c}")
+                _words = client_words(c)
+                if _words:
+                    st.caption("Word de posts para el cliente: " + " · ".join(os.path.basename(w) for w in _words[:6])
+                               + (f" … (+{len(_words)-6})" if len(_words) > 6 else ""))
+                    if st.button("Abrir carpeta de Word", key=f"openw_{c}"):
+                        subprocess.run(["open", os.path.dirname(_words[0])])
                 cap_dir = os.path.join(BASE_DIR, "capturas", c)
                 st.caption("Capturas de paneles")
                 uploads = st.file_uploader("Capturas PNG/JPG", type=["png","jpg","jpeg"], accept_multiple_files=True, key=f"caps_{c}")

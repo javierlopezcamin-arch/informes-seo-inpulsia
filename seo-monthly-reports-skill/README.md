@@ -81,7 +81,7 @@ python3 main.py --client nuevocliente --month 2 --year 2026
 ## 📋 Requisitos
 
 ```bash
-pip install google-auth google-api-python-client google-analytics-data python-pptx python-dotenv
+pip install google-auth google-api-python-client google-analytics-data python-pptx python-dotenv python-docx
 ```
 
 ---

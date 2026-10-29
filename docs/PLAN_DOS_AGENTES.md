@@ -184,5 +184,12 @@ casilla de Google Ads que ya existe (`ADS_EN_INFORME_<CLIENTE>`).
 - El semáforo no replica la nota numérica de Rank Math: es VERDE solo si todos los tests están en verde. Las comprobaciones de
   «palabra clave no usada» y de densidad son aproximadas hasta calibrar (Fase 0).
 
+- **(2026-10-29) El proyecto de Diseño web solo tiene el Elementor del cliente**, sin `seo-inpulsia`. El archivo WEB es
+  autosuficiente: cada post trae un **prompt completo** (datos del informe, ficha SEO, estructura con respuestas directas, FAQ,
+  enlaces que existen, imágenes con alt y el criterio de Rank Math en verde, `RANK_MATH_VERDE`) y el agente lo redacta. Gemini
+  solo hace el brief, no el texto. Sin cupo de IA, un prompt para que proponga y redacte los 2 posts. Los pedidos pendientes de
+  Marketing van en la sección 8 del archivo. La entrega vuelve por el chat: Javi la guarda desde Marketing (`guardar_entrega`)
+  y genera allí el Word (`crear_word_post`).
+
 **Pendiente:** Fase 0 (Elementor + Rank Math reales: crear borrador, escribir los campos SEO, calibrar el semáforo), Fase 4 (web:
 interruptores por cliente, lista de Word) y Fase 5 (instrucciones de los dos proyectos de Claude).

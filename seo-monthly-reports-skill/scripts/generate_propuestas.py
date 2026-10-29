@@ -10,8 +10,9 @@ agentes de Claude, en este orden:
      pedidos a Diseño web. Se activa con ADS_EN_INFORME_<CLIENTE>=true.
 
   - Señales y tablas: reglas en Python (sin coste de tokens).
-  - El brief de los 2 posts del archivo WEB: 1 llamada a Gemini (gratis). Sin respaldo de
-    pago: si no hay cupo, el archivo deja la tarea para el agente.
+  - El brief de los 2 posts del archivo WEB: 1 llamada a Gemini (gratis). Con él, el archivo trae
+    un prompt completo por post (datos del informe + criterio de Rank Math en verde) para que el agente
+    de Diseño web lo redacte; sin cupo, un prompt para que proponga y redacte los 2 posts.
   - Siempre con datos reales (sin el ajuste +10%…+50% del informe).
 """
 
@@ -473,46 +474,162 @@ def _summary_lines(d: dict, ads: bool, web: bool) -> list:
 
 
 def _post_md(i: int, p: dict) -> list:
+    """Resumen del post para Javi; el detalle completo va en su prompt."""
     tl = len(p.get("titulo", ""))
-    tseo, meta = p.get("titulo_seo", ""), p.get("meta_description", "")
     out = ["", f"### Post {i}: {p['titulo']}" + (f"  ⚠️ {tl} caracteres" if tl > 60 else ""),
-           f"- **Variante de título:** {p.get('variante', '—')}",
-           f"- **Palabra clave principal (Rank Math):** {p.get('keyword_principal', '—')} · **secundarias:** {', '.join(p.get('keywords_secundarias', [])) or '—'}",
-           f"- **Intención:** {p.get('intencion', '—')} · **Longitud orientativa:** {p.get('palabras', '—')} palabras (mínimo 600)",
-           f"- **Snippet:** título SEO ({len(tseo)} car.): {tseo or '—'} · meta ({len(meta)} car.): {meta or '—'} · URL: `/{p.get('slug', '').strip('/')}/`",
-           f"- **H1:** {p.get('h1') or p['titulo']}",
-           "- **Estructura** (H2 como pregunta → respuesta directa de 40-60 palabras, para el snippet destacado):"]
-    for j, sec in enumerate(p.get("secciones") or [{"h2": h} for h in p.get("h2", [])], 1):
-        if not isinstance(sec, dict):
-            continue
-        out.append(f"  {j}. **H2:** {sec.get('h2', '')}")
-        if sec.get("respuesta_directa"):
-            out.append(f"     - Respuesta directa: {sec['respuesta_directa']}")
-        out += [f"     - H3: {h}" for h in sec.get("h3", []) if h]
-    if p.get("faq"):
-        out.append("- **Preguntas frecuentes (para el schema FAQPage):**")
-        out += [f"  - {f.get('pregunta', '')} → {f.get('respuesta', '')}" for f in p["faq"] if isinstance(f, dict)]
-    out.append(f"- **Schema:** {', '.join(p.get('schema', [])) or 'Article'}")
-    out.append(f"- **Categoría:** {p.get('categoria', '—')} · **Etiquetas:** {', '.join(p.get('etiquetas', [])) or '—'} · **Extracto:** {p.get('extracto', '—')}")
-    if p.get("enlaces_internos"):
-        out.append("- **Enlaces internos (3-5):** " + " · ".join(f"[{l.get('anchor') or l['url']}]({l['url']})" for l in p["enlaces_internos"]))
-    if p.get("paginas_que_enlazan"):
-        out.append("- **Páginas existentes que deben enlazar a este post:** " + " · ".join(
-            f"{l['url']} (ancla «{l.get('anchor', '')}»)" for l in p["paginas_que_enlazan"]))
-    if p.get("enlaces_externos"):
-        out.append("- **Enlaces externos verificados:** " + " · ".join(
-            f"[{l.get('anchor') or l['url']}]({l['url']})" + (f" ({l['fuente']})" if l.get("fuente") else "") for l in p["enlaces_externos"]))
-    else:
-        out.append("- **Enlaces externos:** ninguno verificado. Busca 1-3 fuentes fiables"
-                   + (": " + "; ".join(p["fuentes_externas"]) if p.get("fuentes_externas") else "") + " y comprueba que responden")
-    if p.get("imagenes"):
-        out.append("- **Imágenes:** " + " · ".join(f"{im.get('idea', '')} (alt: «{im.get('alt', '')}»)" for im in p["imagenes"] if isinstance(im, dict)))
-    out += [f"- **CTA:** {p.get('cta', '—')}", f"- **Por qué ahora:** {p.get('por_que', '—')}"]
+           f"- **Palabra clave:** {p.get('keyword_principal', '—')} · **Intención:** {p.get('intencion', '—')} · "
+           f"**URL:** `/{p.get('slug', '').strip('/')}/` · **Schema:** {', '.join(p.get('schema', [])) or 'Article'}",
+           f"- **Por qué ahora:** {p.get('por_que', '—')}"]
     if p.get("avisos_brief"):
-        out.append("- ⚠️ **Avisos del brief** (corregirlos al escribir): " + "; ".join(p["avisos_brief"]))
+        out.append("- ⚠️ **Avisos del brief:** " + "; ".join(p["avisos_brief"]))
     if p.get("existente"):
         out.append(f"- ⚠️ **Actualizar en vez de crear:** ya existe [{p['existente']['title']}]({p['existente']['url']})")
     return out
+
+
+# Criterio de Rank Math en verde (el mismo que comprueba seo_posts.validate_post)
+RANK_MATH_VERDE = [
+    "Título SEO de 60 caracteres o menos, con la palabra clave al principio y, si encaja, un número.",
+    "Meta descripción de 120 a 155 caracteres con la palabra clave y una llamada a la acción.",
+    "Slug en minúsculas, sin tildes, con guiones, con la palabra clave entera y menos de 75 caracteres.",
+    "Palabra clave en el H1, en el primer 10 % del texto, en al menos un H2 y en el texto alternativo de una imagen.",
+    "Densidad de la palabra clave entre 0,5 % y 2,5 % (sin forzarla); usa también las secundarias.",
+    "Un solo H1 (el título). H2 → H3 sin saltar niveles.",
+    "Mínimo 600 palabras; párrafos de 120 palabras o menos.",
+    "Tabla de contenidos si hay 4 H2 o más.",
+    "3-5 enlaces internos a páginas que EXISTEN (usa solo las URLs indicadas) y 1-3 externos a fuentes fiables que respondan; nunca a competidores.",
+    "Schema Article; añade FAQPage con 3 o más preguntas visibles en el texto, o HowTo solo si es una guía paso a paso.",
+    "Los primeros H2 en forma de pregunta, con una respuesta directa de 40-60 palabras justo debajo (fragmento destacado).",
+    "Todas las imágenes con texto alternativo. Categoría, 1-5 etiquetas y extracto rellenos.",
+    "La palabra clave no debe estar ya usada como principal en otro post de la web.",
+]
+
+_PROMPT_DELIVERY = [
+    "ENTREGA (en este orden)",
+    "1. El texto del post en Markdown SIN el H1: `## ` H2, `### ` H3, `> ` llamada a la acción, imágenes como",
+    "   `![texto alternativo](idea de la imagen)` y enlaces como `[ancla](URL)`.",
+    "2. La ficha SEO final: título del post, título SEO, meta descripción, slug, palabra clave principal y",
+    "   secundarias, categoría, etiquetas, extracto, schema, alt de la imagen destacada.",
+    "3. El repaso del criterio de verde: punto por punto, cumplido o no y por qué.",
+    "4. Crea el post como BORRADOR en Elementor (entrada, sin publicar) con esa ficha. Lo que el conector no",
+    "   pueda escribir (slug, campos de Rank Math, categoría, etiquetas, imagen destacada…) no lo des por hecho:",
+    "   anótalo como «Falta a mano» con el valor exacto a pegar. Nunca digas que algo está aplicado sin leerlo de vuelta.",
+]
+
+
+_NO_LINK = re.compile(r"gracias|thank|cookies|privacidad|privacitat|aviso-legal|avis-legal|legal|condiciones|carrito|cart|checkout|mi-cuenta")
+
+
+def _site_links(d: dict, limit: int = 40) -> list:
+    """Páginas y posts que existen y sirven para enlazar (sin legales ni de agradecimiento)."""
+    wp = d["wp"]
+    return [x for x in wp.get("pages", [])[:limit // 2] + wp.get("posts", [])[:limit // 2]
+            if x.get("url") and not _NO_LINK.search(x["url"].lower())]
+
+
+def _kw_data(d: dict, kw: str) -> str:
+    """Cifras del informe para una palabra clave (si está en la tabla de keywords)."""
+    k = norm(kw)
+    r = next((r for r in d["kw_rows"] if norm(r["kw"]) == k), None)
+    if not r:
+        return ""
+    return f"{r['fuente']}: {r['impr']}" + (f", posición orgánica actual {r['pos']}" if r["pos"] else ", aún sin posición orgánica")
+
+
+def _prompt_header(d: dict, what: str = "el post completo") -> list:
+    wp = d["wp"]
+    mes = f"{MESES.get(d['month'], d['month'])} {d['year']}"
+    existing = " · ".join(p["title"] for p in wp.get("posts", [])[:20]) or "ninguno detectado"
+    return [f"Eres redactor SEO de Inpulsia. Escribe {what} para el blog de {d['client'].replace('_', ' ').title()} "
+            f"({d['base'] or 'web del cliente'}) y déjalo listo para que Rank Math lo puntúe en VERDE.",
+            "Usa solo los datos de este prompt; si falta alguno, dilo en vez de inventarlo. No inventes cifras, precios ni normativa.",
+            "Idioma: el de los posts ya publicados. Tono profesional y cercano, frases claras, sin relleno.",
+            "",
+            f"DATOS DEL INFORME ({mes})",
+            f"- Posts ya publicados (no repitas su tema; puedes enlazarlos): {existing}"]
+
+
+def _post_prompt(i: int, p: dict, d: dict) -> list:
+    """Prompt autosuficiente para que el agente de Diseño web redacte el post (sin herramientas del conector)."""
+    L = _prompt_header(d)
+    kw = p.get("keyword_principal", "")
+    kd = _kw_data(d, kw)
+    L += [f"- Por qué este post ahora: {p.get('por_que', '—')}",
+          f"- Palabra clave principal: «{kw}»" + (f" ({kd})" if kd else ""),
+          f"- Palabras clave secundarias: {', '.join(p.get('keywords_secundarias', [])) or '—'}",
+          f"- Intención de búsqueda: {p.get('intencion', '—')}"]
+    if p.get("existente"):
+        L.append(f"- OJO: ya existe un post parecido ({p['existente']['title']}, {p['existente']['url']}): "
+                 "valora actualizarlo en vez de crear uno nuevo y dímelo antes de empezar.")
+    tseo, meta = p.get("titulo_seo", ""), p.get("meta_description", "")
+    imgs = [im for im in p.get("imagenes", []) if isinstance(im, dict)]
+    L += ["", "FICHA SEO (úsala tal cual; corrige solo lo que incumpla el criterio de verde y dime qué cambiaste)",
+          f"- Título del post (H1): {p.get('h1') or p.get('titulo', '')}",
+          f"- Título alternativo: {p.get('variante', '—')}",
+          f"- Título SEO ({len(tseo)} caracteres): {tseo or '—'}",
+          f"- Meta descripción ({len(meta)} caracteres): {meta or '—'}",
+          f"- Slug: {(p.get('slug') or '').strip('/') or '—'}",
+          f"- Categoría: {p.get('categoria', '—')} · Etiquetas: {', '.join(p.get('etiquetas', [])) or '—'}",
+          f"- Extracto: {p.get('extracto', '—')}",
+          f"- Schema: {', '.join(p.get('schema', [])) or 'Article'}",
+          f"- Imagen destacada: {imgs[0].get('idea', '') + ' · alt: «' + imgs[0].get('alt', '') + '»' if imgs else 'propón una (alt con la palabra clave)'}",
+          "", "ESTRUCTURA (respeta el orden de los H2)"]
+    for j, sec in enumerate(p.get("secciones") or [{"h2": h} for h in p.get("h2", [])], 1):
+        if not isinstance(sec, dict):
+            continue
+        L.append(f"{j}. H2: {sec.get('h2', '')}")
+        if sec.get("respuesta_directa"):
+            L.append(f"   Respuesta directa justo debajo (40-60 palabras), punto de partida: {sec['respuesta_directa']}")
+        L += [f"   H3: {h}" for h in sec.get("h3", []) if h]
+    if p.get("faq"):
+        L.append("Preguntas frecuentes (H2 «Preguntas frecuentes», cada pregunta como H3 con su respuesta; alimentan el schema FAQPage):")
+        L += [f"- {f.get('pregunta', '')} → {f.get('respuesta', '')}" for f in p["faq"] if isinstance(f, dict)]
+    L += ["", "ENLACES"]
+    if p.get("enlaces_internos"):
+        L.append("- Internos (URLs exactas, todas existen): " + " · ".join(
+            f"[{l.get('anchor') or l['url']}]({l['url']})" for l in p["enlaces_internos"]))
+    else:
+        L.append("- Internos: elige 3-5 de estas URLs, que existen: " + " · ".join(x["url"] for x in _site_links(d)))
+    if p.get("enlaces_externos"):
+        L.append("- Externos (comprobados, responden): " + " · ".join(
+            f"[{l.get('anchor') or l['url']}]({l['url']})" + (f" ({l['fuente']})" if l.get("fuente") else "")
+            for l in p["enlaces_externos"]))
+    else:
+        L.append("- Externos: 1-3 fuentes fiables" + (f" ({'; '.join(p['fuentes_externas'])})" if p.get("fuentes_externas") else "")
+                 + ". Comprueba que la URL existe; si no puedes comprobarla, no la pongas y dímelo.")
+    if p.get("paginas_que_enlazan"):
+        L.append("- Después, enlaza al post nuevo desde: " + " · ".join(
+            f"{l['url']} (ancla «{l.get('anchor', '')}»)" for l in p["paginas_que_enlazan"]) + " (edita una copia en borrador).")
+    if imgs:
+        L += ["", "IMÁGENES"] + [f"- {im.get('idea', '')} · alt: «{im.get('alt', '')}»" for im in imgs]
+    L += ["", f"LLAMADA A LA ACCIÓN: {p.get('cta', '—')}",
+          f"LONGITUD: unas {p.get('palabras') or 900} palabras (mínimo 600)."]
+    if p.get("avisos_brief"):
+        L.append("AVISOS (corrígelos al escribir): " + "; ".join(p["avisos_brief"]))
+    L += ["", "CRITERIO DE VERDE EN RANK MATH (repásalo punto por punto antes de entregar)"]
+    L += [f"- {c}" for c in RANK_MATH_VERDE]
+    return ["", f"#### Prompt para redactar el post {i}", "", "````text", *L, "", *_PROMPT_DELIVERY, "````"]
+
+
+def _fallback_prompts(d: dict) -> list:
+    """Sin brief de IA: prompt para que el agente proponga y redacte 2 posts con los datos del informe."""
+    kws = [r for r in d["kw_rows"] if r["uso"].startswith("post")][:6]
+    L = _prompt_header(d, "2 posts completos")
+    L += ["- Palabras clave candidatas para posts (elige 2 distintas que no repitan un post publicado):"]
+    L += [f"  - «{r['kw']}» — {r['fuente']}: {r['impr']}" + (f", posición orgánica {r['pos']}" if r["pos"] else "")
+          + f" · {r['uso']}" for r in kws] or ["  - (el informe no trae candidatas claras)"]
+    top = [k for k in d["sc"].get("top_keywords", []) if k.get("impressions", 0) >= 10][:8]
+    if top:
+        L.append("- Consultas con más impresiones en Google este mes (contexto; no repitas lo que ya posiciona bien): " + " · ".join(
+            f"«{k['query']}» ({k['impressions']} impr., pos. {k.get('position', '—')})" for k in top))
+    L += ["- URLs que existen para los enlaces internos: " + (" · ".join(x["url"] for x in _site_links(d)) or "—"),
+          "", "QUÉ HACER",
+          "Propón primero los 2 posts (palabra clave, título, intención y por qué, con una cifra de las candidatas) y espera mi OK.",
+          "Después, para cada uno: ficha SEO, estructura de 5-7 H2 (los primeros como pregunta con respuesta directa de",
+          "40-60 palabras), 3-4 preguntas frecuentes, 2-3 imágenes con alt, enlaces y llamada a la acción, y redacta el post.",
+          "", "CRITERIO DE VERDE EN RANK MATH (repásalo punto por punto antes de entregar)"]
+    L += [f"- {c}" for c in RANK_MATH_VERDE]
+    return ["", "#### Prompt para proponer y redactar los 2 posts", "", "````text", *L, "", *_PROMPT_DELIVERY, "````"]
 
 
 def _tracking_lines(t: dict, paid: list) -> list:
@@ -570,18 +687,22 @@ def build_web_markdown(d: dict) -> str:
     sig, wp, ins, ads, paid, posts = d["sig"], d["wp"], d["insights"], d["ads"], d["paid"], d["posts"]
     out = _title(d, "WEB", "para el agente de Diseño web")
     out += [f"Web: {d['base']} · MCP Elementor: `{d['mcp'] or 'no configurado'}` · SEO: Rank Math", "",
-            "> **Tu trabajo:** crear los posts en BORRADOR con la configuración de Rank Math en verde, generar el Word de cada post "
-            "para el cliente y hacer los cambios y revisiones de la web. No publiques nada ni envíes nada al cliente. "
-            "Al terminar, guarda la hoja de entrega.", ""]
+            "> **Tu trabajo:** redactar cada post con su prompt (sección 2), crearlo en BORRADOR con la configuración de Rank Math "
+            "en verde y hacer los cambios y revisiones de la web. No publiques nada ni envíes nada al cliente. "
+            "Este archivo lleva todo lo necesario: no hace falta ningún otro conector que el Elementor de esta web. "
+            "Al terminar, devuelve la hoja de entrega (sección 7) en el chat.", ""]
     out += _summary_lines(d, ads=False, web=True)
 
-    out.append("## 2. Posts a crear")
+    out += ["## 2. Posts a crear",
+            "Cada post trae su prompt completo (datos del informe, ficha SEO, estructura, enlaces y criterio de Rank Math en verde). "
+            "Úsalo tal cual para redactarlo; las preguntas o cambios de enfoque, consúltalos antes."]
     if posts:
         for i, p in enumerate(posts, 1):
             out += _post_md(i, p)
+            out += _post_prompt(i, p, d)
     else:
-        out.append("\n_Pendiente: la web no generó el brief (sin IA o sin cupo de Gemini). Propón 2 posts con la sección 3 y las "
-                   "reglas de Rank Math en verde, y valida cada uno con `validar_seo_post` antes de crear el borrador._")
+        out.append("\n_La web no generó el brief de los posts (sin IA o sin cupo de Gemini). Usa este prompt, que lleva los datos del informe:_")
+        out += _fallback_prompts(d)
     if wp.get("posts"):
         out += ["", "**Posts ya publicados (no repetir):** " + " · ".join(p["title"] for p in wp["posts"][:15])]
     out.append("")
@@ -614,12 +735,13 @@ def build_web_markdown(d: dict) -> str:
 
     tasks = []
     for i, p in enumerate(posts, 1):
-        tasks.append(f"Post {i} «{p['titulo']}»: `validar_seo_post` → crear el borrador (entrada, sin publicar) con título SEO, meta, slug, "
-                     "palabra clave, categoría, etiquetas, extracto, schema e imagen destacada de Rank Math → `crear_word_post` → anotarlo en la hoja de entrega")
+        tasks.append(f"Post {i} «{p['titulo']}»: redactarlo con su prompt → repasar el criterio de verde → crear el borrador (entrada, "
+                     "sin publicar) con título SEO, meta, slug, palabra clave, categoría, etiquetas, extracto, schema e imagen destacada "
+                     "de Rank Math → anotarlo en la hoja de entrega")
         tasks += [f"Enlazar a «{p['titulo']}» desde {l['url']} (ancla «{l.get('anchor', '')}»), editando una copia en borrador"
                   for l in p.get("paginas_que_enlazan", [])]
     if not posts:
-        tasks.append("Proponer 2 posts con las secciones 1 y 3, validarlos con `validar_seo_post`, crearlos como borrador y generar su Word")
+        tasks.append("Proponer y redactar 2 posts con el prompt de la sección 2 y crearlos como borrador")
     for pg in (ins.get("decay") or {}).get("pages", [])[:3]:
         if not pg["pos_now"]:
             tasks.append(f"Comprobar si {pg['page']} sigue activa o se redirigió: ya no aparece en Google ({pg['clicks_before']} clics antes)")
@@ -635,13 +757,18 @@ def build_web_markdown(d: dict) -> str:
         tasks.append(f"Preparar las redirecciones de las URLs duplicadas con/sin barra final ({len(sig['slash_dupes'])})")
     for c in sig["cannibal"][:2]:
         tasks.append(f"Resolver la canibalización de «{c['query']}»: decidir qué página gana y enlazar la otra a ella")
-    tasks.append("Guardar la hoja de entrega con `guardar_entrega`")
+    if d.get("pedidos_web"):
+        tasks.append("Atender los pedidos pendientes de Marketing (sección 8)")
+    tasks.append("Devolver la hoja de entrega (sección 7) en el chat")
     out += ["## 6. Tareas"] + [f"- [ ] {t}" for t in tasks] + [""]
 
     out += ["## 7. Entrega",
-            "Al terminar, `guardar_entrega` con una fila por pieza (Marketing la lee a continuación):", "",
-            "| Pieza | Tipo | ID | Estado | Enlace de edición | Word | SEO aplicado | Semáforo | Falta a mano |",
-            "|---|---|---|---|---|---|---|---|---|", ""]
+            "Al terminar, devuelve en el chat esta tabla con una fila por pieza, y debajo el texto final y la ficha SEO de cada post "
+            "(con eso Javi genera el Word para el cliente y Marketing revisa lo hecho):", "",
+            "| Pieza | Tipo | ID | Estado | Enlace de edición | SEO aplicado | Criterio de verde | Falta a mano |",
+            "|---|---|---|---|---|---|---|---|", ""]
+    if d.get("pedidos_web"):
+        out += ["## 8. Pedidos pendientes de Marketing", "", d["pedidos_web"].strip(), ""]
     return "\n".join(out)
 
 
@@ -729,6 +856,18 @@ def build_marketing_markdown(d: dict) -> str:
 
 
 # ── Orquestación ──────────────────────────────────────────────
+def _pending_orders(folder: str, cu: str) -> str:
+    """Pedidos de Marketing a Diseño web aún sin atender (más recientes que la última entrega), para
+    incluirlos en el archivo WEB: el agente de Diseño web no tiene el conector de informes."""
+    import glob
+    latest = lambda pre: max(glob.glob(os.path.join(folder, f"{pre}_{cu}_*.md")), key=os.path.getmtime, default=None)
+    ped, ent = latest("PEDIDOS_WEB"), latest("ENTREGA_WEB")
+    if not ped or (ent and os.path.getmtime(ent) >= os.path.getmtime(ped)):
+        return ""
+    with open(ped, encoding="utf-8") as f:
+        return f.read()
+
+
 def generate_propuestas(client: str, month: int, year: int, ga4_data: dict, sc_data: dict,
                         ads_data: dict, ads_error: str = "", insights: dict = None,
                         web: bool = True, marketing: bool = True) -> dict:
@@ -773,6 +912,7 @@ def generate_propuestas(client: str, month: int, year: int, ga4_data: dict, sc_d
 
     out_dir = os.path.join(get_output_dir(), "internos")
     os.makedirs(out_dir, exist_ok=True)
+    d["pedidos_web"] = _pending_orders(out_dir, cu)
     paths = {"web": None, "marketing": None}
     for kind, on, build in (("WEB", web, build_web_markdown), ("MARKETING", marketing, build_marketing_markdown)):
         if not on:

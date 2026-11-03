@@ -128,7 +128,27 @@ def _get_client_logo(client_name: str):
             is_svg = False
     if is_svg:
         return _svg_to_png(path)
-    return path
+    return _to_pptx_image(path)
+
+
+# Formatos que python-pptx sabe insertar
+_PPTX_FORMATS = {"BMP", "GIF", "JPEG", "PNG", "TIFF", "WMF"}
+
+
+def _to_pptx_image(path: str):
+    """WEBP, AVIF y demás formatos que python-pptx no admite → PNG (con transparencia).
+    Se mira el formato real del archivo, no la extensión («logo.png.webp»). None si no se puede leer."""
+    from PIL import Image
+    try:
+        with Image.open(path) as im:
+            if im.format in _PPTX_FORMATS:
+                return path
+            png_path = path.rsplit(".", 1)[0] + ".png"
+            im.convert("RGBA").save(png_path)
+        return png_path
+    except Exception as e:
+        print(f"  ⚠️  Logo del cliente: formato no compatible ({type(e).__name__}); el informe sale sin logo")
+        return None
 
 
 def _fit_logo(path: str, max_w: float, max_h: float) -> tuple:

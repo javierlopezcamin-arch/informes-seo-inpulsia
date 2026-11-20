@@ -29,7 +29,9 @@ if _creds and not os.path.isabs(_creds):
 sys.path.insert(0, os.path.join(_BASE_DIR, 'scripts'))
 from extract_ga4 import extract_ga4_data
 from extract_search_console import extract_search_console_data
-from extract_pagespeed import extract_pagespeed
+from extract_pagespeed import extract_pagespeed, extract_crux
+from extract_keywords import extract_keyword_tracking, target_keywords_for
+from extract_rankmath import extract_rankmath, rankmath_configured
 from extract_google_ads import extract_google_ads_data, customer_id_for, credentials_configured, friendly_error, ads_enabled_for
 from analyze import analyze_seo_data
 from seo_insights import build_insights
@@ -298,6 +300,26 @@ def main():
     insights = build_insights(ga4_id, sc_url, month, year)
     print(f"  ✅ {len((insights.get('decay') or {}).get('pages', []))} páginas pierden clics · "
           f"{(insights.get('ai') or {}).get('sessions', 0)} visitas desde IA")
+
+    # ── 2g. Keywords: top 3, páginas en Google y keywords objetivo (6 meses) ──
+    print(f"\n🎯 Seguimiento de keywords (top 3 y objetivo)...")
+    targets = target_keywords_for(client)
+    try:
+        insights['kw_tracking'] = extract_keyword_tracking(sc_url, month, year, targets)
+        cur = (insights['kw_tracking'].get('months') or [{}])[-1]
+        print(f"  ✅ {cur.get('top3_count', 0)} búsquedas en el top 3 · {len(targets)} keywords objetivo")
+    except Exception as e:
+        print(f"  ⚠️  Seguimiento de keywords: {type(e).__name__}: {str(e)[:120]}")
+
+    # ── 2h. Velocidad real (CrUX) y Rank Math ──────────────
+    insights['crux'] = extract_crux(sc_url)
+    if insights['crux']:
+        print(f"  ⚡ CrUX: {len(insights['crux'].get('metrics', {}))} métricas de usuarios reales")
+    if rankmath_configured(client):
+        print(f"\n🧮 Rank Math (puntuaciones SEO)...")
+        insights['rankmath'] = extract_rankmath(client, month, year)
+        if insights['rankmath']:
+            print(f"  ✅ Rank Math: {insights['rankmath']['now']}")
 
     # ── 3. Analizar ─────────────────────────────────────────
     print(f"\n🔬 Analizando datos...")

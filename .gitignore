@@ -22,3 +22,6 @@ __pycache__/
 *.pyc
 .claude/settings.local.json
 .cloudflare/
+
+# Fotos mensuales de Rank Math por cliente
+seo-monthly-reports-skill/datos/

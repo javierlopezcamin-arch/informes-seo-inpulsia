@@ -963,14 +963,14 @@ def add_highlights_slide(prs, highlights: dict):
     if improve:
         yi, hi = y + h + 0.18, 1.2
         box(0.45, yi, 9.1, hi, NAVY)
-        box(0.45, yi, 0.06, hi, RED)
-        text(0.7, yi + 0.12, 4.0, 0.28, "PUNTO A MEJORAR", 9, RED, bold=True)
+        box(0.45, yi, 0.06, hi, LIME)
+        text(0.7, yi + 0.12, 4.0, 0.28, "PRÓXIMA OPORTUNIDAD", 9, LIME, bold=True)
         text(0.7, yi + 0.36, 6.2, 0.36, improve['label'], 15, WHITE, bold=True)
         text(0.7, yi + 0.7, 6.4, 0.28, improve['detail'], 11, MUTED)
         if improve.get('note'):
             text(0.7, yi + 0.9, 7.6, 0.28, improve['note'], 10, OFFWH, italic=True)
         if improve.get('value'):
-            text(7.0, yi + 0.22, 2.35, 0.65, improve['value'], 26, RED, bold=True, align=PP_ALIGN.RIGHT)
+            text(7.0, yi + 0.22, 2.35, 0.65, improve['value'], 26, LIME, bold=True, align=PP_ALIGN.RIGHT)
 
 
 def add_image_chart_slide(prs, title: str, img_path: str, narrative: str = "",
@@ -1039,6 +1039,30 @@ def _ai_slide_data(analysis):
                  "Significa que estos asistentes enlazan la web en sus respuestas: un canal nuevo que conviene seguir.")
     rows = [[a['assistant'], fmt_int(a['sessions'])] for a in ai['sources'][:6]]
     return rows, narrative
+
+
+def _dominance_rows(analysis):
+    dom = analysis.get('dominance') or {}
+    return [[k['query'], fmt_dec(k['position']), fmt_int(k['clicks']), fmt_int(k['impressions'])]
+            for k in dom.get('top', [])[:8]]
+
+
+def _targets_rows(analysis):
+    """Keyword · ahora · mejor posición · evolución (solo si mejora) · clics."""
+    tg = analysis.get('targets') or {}
+    out = []
+    for r in tg.get('rows', []):
+        now = fmt_dec(r['now']) if r['now'] is not None else "aún sin posición"
+        best = fmt_dec(r['best']) if r['best'] is not None else "—"
+        evo = f"▲ {fmt_dec(r['first'] - r['now'])} pos." if r['improved'] else ""
+        out.append([r['query'], now, best, evo, fmt_int(r['clicks'])])
+    return out
+
+
+def _crux_rows(analysis):
+    cx = analysis.get('crux') or {}
+    return [[r['label'], r['now'], r['threshold'], "✓ Bueno" if r['good'] else "",
+             "▲ Mejora" if r['improved'] else ""] for r in cx.get('rows', [])]
 
 
 def _decay_slide_data(analysis):
@@ -1309,8 +1333,8 @@ def _add_insight_box(slide, text: str, y: float = 4.85):
 
 def add_keyword_movements_slide(prs, movements: dict, section: str = "", section_num: str = ""):
     gained = movements.get('gained', [])
-    lost = movements.get('lost', [])
-    if not gained and not lost:
+    new = [dict(k, delta=0) for k in movements.get('new', [])]
+    if not gained and not new:
         return
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     slide.background.fill.solid()
@@ -1319,9 +1343,9 @@ def add_keyword_movements_slide(prs, movements: dict, section: str = "", section
     _add_top_bar(slide, right_text=section)
     if section_num:
         _section_watermark(slide, section_num)
-    _slide_title(slide, "Keywords — Ganadas y Perdidas")
+    _slide_title(slide, "Keywords que Crecen")
 
-    _narrative(slide, f"{len(gained)} keywords subieron de posición y {len(lost)} bajaron respecto al mes anterior.")
+    _narrative(slide, f"{len(gained)} keywords subieron de posición y {len(new)} aparecen por primera vez entre las búsquedas principales.")
 
     def _draw_col(items, x_start, col_w, label, accent_color, arrow):
         tb_h = slide.shapes.add_textbox(Inches(x_start), Inches(1.88), Inches(col_w), Inches(0.32))
@@ -1347,14 +1371,14 @@ def add_keyword_movements_slide(prs, movements: dict, section: str = "", section
             tb_d = slide.shapes.add_textbox(Inches(x_start + col_w - 1.4), Inches(y + 0.04), Inches(1.26), Inches(0.34))
             p_d = tb_d.text_frame.paragraphs[0]
             delta = abs(kw['delta'])
-            p_d.text = f"pos {fmt_dec(kw['position'])}  {arrow}{fmt_dec(delta)}"
+            p_d.text = f"pos {fmt_dec(kw['position'])}  {arrow}{fmt_dec(delta)}" if delta else f"pos {fmt_dec(kw['position'])}"
             p_d.font.size = Pt(11)
             p_d.font.bold = True
             p_d.font.color.rgb = accent_color
             p_d.alignment = PP_ALIGN.RIGHT
 
     _draw_col(gained, 0.45, 4.4, "Subieron", GREEN, "▲")
-    _draw_col(lost, 5.15, 4.4, "Bajaron", RED, "▼")
+    _draw_col(new, 5.15, 4.4, "Nuevas", LIME, "")
 
 
 def add_opportunities_slide(prs, opps_data: dict, section: str = "", section_num: str = ""):
@@ -1596,7 +1620,7 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
     # Señales y análisis que deciden si «Análisis y Recomendaciones» sale (índice y diapositivas)
     _recs = analysis.get('recommendations', [])
     _anom = analysis.get('anomalies', [])
-    _dec = _decay_slide_data(analysis) if 'recomendaciones' in sec else None
+    _dec = None  # las páginas que pierden clics solo van al archivo interno de propuestas
     show_recs = 'recomendaciones' in sec and bool(_recs or _anom or _dec)
     _conv = _conv_slide_data(analysis) if 'conversiones' in sec else None
 
@@ -1615,7 +1639,9 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
         idx_sections.append((f"{idx_n:02d}", "Conversiones desde Google")); idx_n += 1
     if 'ads' in sec and ads:
         idx_sections.append((f"{idx_n:02d}", "Google Ads")); idx_n += 1
-    if 'pagespeed' in sec and pagespeed:
+    crux, rankmath = analysis.get('crux') or {}, analysis.get('rankmath') or {}
+    tech = 'pagespeed' in sec and (pagespeed or crux or rankmath)
+    if tech:
         idx_sections.append((f"{idx_n:02d}", "SEO Técnico")); idx_n += 1
     if show_recs:
         idx_sections.append((f"{idx_n:02d}", "Análisis y Recomendaciones")); idx_n += 1
@@ -1750,6 +1776,24 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
                             col_widths=[4, 1.2, 1.5, 1, 1],
                             note=insights.get('keywords') if include_notes else None)
 
+        dom = analysis.get('dominance') or {}
+        if dom:
+            img = gcharts.dominance_bars(dom['series']) if gcharts else None
+            if img:
+                add_image_chart_slide(prs, "Búsquedas que Dominamos", img, dom['narrative'], s_label, s_num)
+            if dom.get('top'):
+                add_table_slide(prs, "En el Top 3 de Google", ["Keyword", "Posición", "Clics", "Impresiones"],
+                                _dominance_rows(analysis), dom['narrative'], s_label, s_num,
+                                col_widths=[4.9, 1.2, 1.2, 1.4])
+        tg = analysis.get('targets') or {}
+        if tg:
+            img = gcharts.target_positions_line(tg['labels'], tg['series']) if gcharts else None
+            if img:
+                add_image_chart_slide(prs, "Evolución de las Keywords Objetivo", img, tg['narrative'], s_label, s_num)
+            add_table_slide(prs, "Keywords Objetivo", ["Keyword", "Ahora", "Mejor posición", "Evolución", "Clics"],
+                            _targets_rows(analysis), tg['narrative'], s_label, s_num,
+                            col_widths=[3.7, 1.5, 1.4, 1.3, 0.9])
+
         add_keyword_movements_slide(prs, kw_moves, s_label, s_num)
         add_opportunities_slide(prs, opps, s_label, s_num)
 
@@ -1809,9 +1853,16 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
     add_panel_screenshot_slides(prs, client_name)
 
     # SEO TÉCNICO
-    if 'pagespeed' in sec and pagespeed:
+    if tech:
         s_num = sec_nums["SEO Técnico"]
-        add_pagespeed_slide(prs, pagespeed, f"{int(s_num)}. SEO Técnico", s_num)
+        s_label = f"{int(s_num)}. SEO Técnico"
+        if pagespeed:
+            add_pagespeed_slide(prs, pagespeed, s_label, s_num)
+        if crux:
+            add_table_slide(prs, "Velocidad Real de los Usuarios", ["Métrica", "Ahora", "Objetivo Google", "Estado", ""],
+                            _crux_rows(analysis), crux['narrative'], s_label, s_num, col_widths=[3.9, 1.2, 1.5, 1.1, 1.1])
+        if rankmath.get('kpis'):
+            add_kpi_slide(prs, "Salud SEO (Rank Math)", rankmath['narrative'], rankmath['kpis'], s_label, s_num)
 
     # ANÁLISIS Y RECOMENDACIONES
     if show_recs:

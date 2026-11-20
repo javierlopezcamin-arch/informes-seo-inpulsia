@@ -267,3 +267,47 @@ def metric_bars(data: dict, color: str = G_BLUE) -> str | None:
     ax.grid(False)
     ax.tick_params(labelsize=14)
     return _save(fig)
+
+
+def dominance_bars(series: list) -> str | None:
+    """Búsquedas en el top 3 (lima) y en el top 10 (azul) mes a mes."""
+    while series and not series[0].get('top10'):
+        series = series[1:]
+    if not HAS_MPL or len(series) < 2:
+        return None
+    labels = [s['label'] for s in series]
+    x = range(len(labels))
+    fig, ax = plt.subplots(figsize=(10.2, 4.0))
+    _base_ax(ax)
+    w = 0.38
+    b10 = ax.bar([i + w / 2 for i in x], [s['top10'] for s in series], w, color=G_BLUE, label="Top 10")
+    b3 = ax.bar([i - w / 2 for i in x], [s['top3'] for s in series], w, color="#9ECC00", label="Top 3")
+    for bars in (b3, b10):
+        for r in bars:
+            if r.get_height():
+                ax.annotate(fmt_int(r.get_height()), (r.get_x() + r.get_width() / 2, r.get_height()),
+                            textcoords="offset points", xytext=(0, 4), ha="center", fontsize=11, color=G_GRAY)
+    ax.set_xticks(list(x), labels, fontsize=13)
+    ax.yaxis.set_major_locator(MaxNLocator(5, integer=True))
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.01), ncol=2, frameon=False, fontsize=13)
+    return _save(fig)
+
+
+def target_positions_line(labels: list, series: list) -> str | None:
+    """Posición de cada keyword objetivo mes a mes (arriba = mejor; huecos = sin posición)."""
+    if not HAS_MPL or not series:
+        return None
+    colors = DONUT_COLORS
+    fig, ax = plt.subplots(figsize=(10.2, 4.0))
+    _base_ax(ax)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: fmt_num(v) if v >= 1 else ""))
+    for i, s in enumerate(series[:8]):
+        ys = [p if p is not None else float('nan') for p in s['positions']]
+        ax.plot(labels, ys, color=colors[i % len(colors)], linewidth=2.4, marker="o", markersize=7,
+                markeredgecolor="white", markeredgewidth=1.2, label=s['query'])
+    ax.invert_yaxis()
+    ax.set_ylabel("Posición en Google", fontsize=13, color=G_GRAY)
+    ax.tick_params(axis="x", labelsize=13)
+    ax.margins(x=0.06)
+    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), frameon=False, fontsize=11)
+    return _save(fig)

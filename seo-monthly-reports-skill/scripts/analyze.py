@@ -391,6 +391,12 @@ class SEOAnalyzer:
                 ch = (cur - prev) / prev * 100
                 cands.append({'group': group, 'label': label, 'score': ch, 'value': fmt_pct(ch, 0, sign=True),
                               'detail': f"{fmt_int(cur)} frente a {fmt_int(prev)} en {prev_name}"})
+        dom = self.analyze_dominance()
+        if dom and (dom.get('prev_count') or 0) >= 3:
+            ch = (dom['count'] - dom['prev_count']) / dom['prev_count'] * 100
+            cands.append({'group': 'top3', 'label': 'Búsquedas en el top 3', 'score': ch,
+                          'value': fmt_pct(ch, 0, sign=True), 'only_win': True,
+                          'detail': f"{fmt_int(dom['count'])} frente a {fmt_int(dom['prev_count'])} en {prev_name}"})
         if s.get('ctr') and sp.get('ctr') and s.get('clicks', 0) >= 10:
             ch = (s['ctr'] - sp['ctr']) / sp['ctr'] * 100
             cands.append({'group': 'ctr', 'label': 'CTR en Google', 'score': ch, 'value': fmt_pct(ch, 0, sign=True),
@@ -398,9 +404,10 @@ class SEOAnalyzer:
                           'only_win': True})
         if s.get('position') and sp.get('position'):
             d = sp['position'] - s['position']   # positivo: sube en Google
-            cands.append({'group': 'posicion', 'label': 'Posiciones ganadas' if d > 0 else 'Posiciones perdidas',
+            cands.append({'group': 'posicion', 'label': 'Posiciones ganadas',
                           'score': d / sp['position'] * 100, 'value': fmt_dec(abs(d)),
-                          'detail': f"posición media {fmt_dec(s['position'])} ({fmt_dec(sp['position'])} en {prev_name})"})
+                          'detail': f"posición media {fmt_dec(s['position'])} ({fmt_dec(sp['position'])} en {prev_name})",
+                          'only_win': True})
         if m.get('bounce_rate') and mp.get('bounce_rate'):
             d = mp['bounce_rate'] - m['bounce_rate']   # positivo: baja el rebote
             cands.append({'group': 'rebote', 'label': 'Menos rebote', 'score': d / mp['bounce_rate'] * 100,
@@ -423,6 +430,9 @@ class SEOAnalyzer:
         if s.get('impressions'):
             extra.append({'label': 'Impresiones en Google', 'value': fmt_int(s['impressions']),
                           'detail': "veces que la web apareció en Google este mes"})
+        if dom:
+            extra.append({'label': 'Búsquedas en el top 3', 'value': fmt_int(dom['count']),
+                          'detail': "búsquedas en las que la web sale entre los 3 primeros"})
         first_page = sum(1 for k in kws if k.get('position', 99) <= 10)
         if first_page:
             extra.append({'label': 'Keywords en primera página', 'value': fmt_int(first_page),
@@ -433,29 +443,13 @@ class SEOAnalyzer:
             if e['label'] not in {w['label'] for w in wins}:
                 wins.append(e)
 
-        # Punto a mejorar: la métrica de volumen o posición que más baja, y la página que más clics pierde
-        drops = sorted((c for c in cands if c['score'] < -1 and not c.get('only_win')), key=lambda c: c['score'])
-        dec = (self.insights.get('decay') or {}).get('pages', [])
-        page = path = ""
-        if dec:
-            page = dec[0]
-            path = "/" + page['page'].split('://')[-1].partition('/')[2]
-            path = path if len(path) <= 48 else path[:47] + "…"
-        if drops:
-            d = drops[0]
-            note = (f"La página {path} pierde un {fmt_pct(abs(page['pct']), 0)} de clics: "
-                    "conviene actualizar su contenido." if page else "")
-            improve = {'label': d['label'], 'value': d['value'], 'detail': d['detail'], 'note': note}
-        elif page:
-            improve = {'label': 'Contenido que pierde visitas', 'value': fmt_pct(page['pct'], 0),
-                       'detail': f"{path}: {fmt_int(page['clicks_before'])} → {fmt_int(page['clicks_now'])} clics",
-                       'note': "Actualizar su contenido suele dar resultados antes que crear páginas nuevas."}
-        else:
-            opp = (self.analyze_opportunities().get('opportunities') or [None])[0]
-            improve = ({'label': 'A un paso del top 10', 'value': fmt_dec(opp['position']),
-                        'detail': f"«{opp['query']}» está en la posición {fmt_dec(opp['position'])}",
-                        'note': "Reforzar esa página puede llevarla a la primera página de Google."}
-                       if opp else None)
+        # Próxima oportunidad (en positivo): la keyword más cerca de entrar en el top 10.
+        # Las caídas y las páginas que pierden clics van solo al archivo interno de propuestas.
+        opp = (self.analyze_opportunities().get('opportunities') or [None])[0]
+        improve = ({'label': 'A un paso del top 10', 'value': fmt_dec(opp['position']),
+                    'detail': f"«{opp['query']}» está en la posición {fmt_dec(opp['position'])}",
+                    'note': "Reforzar esa página puede llevarla a la primera página de Google."}
+                   if opp else None)
         return {'wins': wins, 'improve': improve}
 
     # ── Keywords ganadas / perdidas (#5) ────────────────────
@@ -463,7 +457,7 @@ class SEOAnalyzer:
         curr_kws = {k['query']: k for k in self.sc.get('top_keywords', []) if k['position'] <= KW_MAX_POSITION}
         prev_kws = {k['query']: k for k in self.sc_prev.get('top_keywords', [])}
         if not curr_kws or not prev_kws:
-            return {'gained': [], 'lost': [], 'new': []}
+            return {'gained': [], 'new': []}
 
         movements = []
         for q, c in curr_kws.items():
@@ -476,11 +470,95 @@ class SEOAnalyzer:
                 })
 
         gained = sorted([m for m in movements if m['delta'] > 0], key=lambda x: -x['delta'])[:6]
-        lost = sorted([m for m in movements if m['delta'] < 0], key=lambda x: x['delta'])[:6]
         new_kws = [{'query': q, 'position': round(c['position'], 1), 'clicks': c.get('clicks', 0)}
                    for q, c in curr_kws.items() if q not in prev_kws][:5]
 
-        return {'gained': gained, 'lost': lost, 'new': new_kws}
+        return {'gained': gained, 'new': new_kws}
+
+    # ── Búsquedas que dominamos (top 3) y páginas en Google ──
+    def analyze_dominance(self) -> Dict:
+        months = (self.insights.get('kw_tracking') or {}).get('months') or []
+        if not months or not months[-1].get('top3_count'):
+            return {}
+        cur = months[-1]
+        prev = months[-2] if len(months) >= 2 else {}
+        d = cur['top3_count'] - prev.get('top3_count', cur['top3_count'])
+        narrative = f"La web aparece en el top 3 de Google en {fmt_int(cur['top3_count'])} búsquedas"
+        narrative += (f" ({fmt_int(d)} más que el mes anterior)" if d > 0 else "")
+        narrative += f" y en la primera página en {fmt_int(cur['top10_count'])}."
+        return {'count': cur['top3_count'], 'prev_count': prev.get('top3_count'), 'top10': cur['top10_count'],
+                'pages': cur.get('pages_count', 0), 'prev_pages': prev.get('pages_count'),
+                'top': cur.get('top3', [])[:8], 'narrative': narrative,
+                'series': [{'label': m['label'], 'top3': m['top3_count'], 'top10': m['top10_count'],
+                            'pages': m.get('pages_count', 0)} for m in months]}
+
+    # ── Keywords objetivo del cliente ────────────────────────
+    def analyze_targets(self) -> Dict:
+        kt = self.insights.get('kw_tracking') or {}
+        targets, months = kt.get('targets') or [], kt.get('months') or []
+        if not targets or not months:
+            return {}
+        rows, series = [], []
+        for t in targets:
+            pos = [(m['targets'].get(t) or {}).get('position') for m in months]
+            known = [p for p in pos if p is not None]
+            cur = (months[-1]['targets'].get(t) or {})
+            first = next((p for p in pos if p is not None), None)
+            rows.append({'query': t, 'first': first, 'now': pos[-1], 'best': min(known) if known else None,
+                         'clicks': cur.get('clicks', 0), 'impressions': cur.get('impressions', 0),
+                         'improved': first is not None and pos[-1] is not None and pos[-1] < first})
+            if len(known) >= 2:
+                series.append({'query': t, 'positions': pos})
+        up = sum(1 for r in rows if r['improved'])
+        top10 = sum(1 for r in rows if r['now'] is not None and r['now'] <= 10)
+        narrative = (f"{top10} de {len(rows)} keywords objetivo están en la primera página de Google"
+                     + (f" y {up} han mejorado su posición en los últimos meses." if up else "."))
+        return {'rows': rows, 'series': series, 'labels': [m['label'] for m in months],
+                'first_label': months[0]['label'], 'narrative': narrative}
+
+    # ── Velocidad real (CrUX) y salud SEO (Rank Math) ────────
+    def analyze_crux(self) -> Dict:
+        cx = self.insights.get('crux') or {}
+        names = {'largest_contentful_paint': ('Carga de la página (LCP)', 'ms'),
+                 'interaction_to_next_paint': ('Respuesta al clic (INP)', 'ms'),
+                 'cumulative_layout_shift': ('Estabilidad visual (CLS)', '')}
+        rows = []
+        for k, (label, unit) in names.items():
+            m = (cx.get('metrics') or {}).get(k)
+            if not m:
+                continue
+            f = (lambda v: f"{fmt_dec(v / 1000, 2)}{NBSP}s") if unit == 'ms' and k != 'interaction_to_next_paint' else \
+                (lambda v: f"{fmt_int(v)}{NBSP}ms") if unit == 'ms' else (lambda v: fmt_dec(v, 2))
+            thr = {'largest_contentful_paint': f"≤ 2,5{NBSP}s", 'interaction_to_next_paint': f"≤ 200{NBSP}ms",
+                   'cumulative_layout_shift': "≤ 0,1"}[k]
+            rows.append({'label': label, 'before': f(m['before']), 'now': f(m['now']), 'good': m['good'],
+                         'threshold': thr, 'improved': m['now'] < m['before'] * 0.97})
+        if not rows:
+            return {}
+        good = sum(1 for r in rows if r['good'])
+        narrative = (f"Datos reales de usuarios de Chrome en móvil: {good} de {len(rows)} métricas en verde "
+                     "según los umbrales de Google.")
+        return {'rows': rows, 'narrative': narrative, 'last_date': cx.get('last_date', '')}
+
+    def analyze_rankmath(self) -> Dict:
+        rm = self.insights.get('rankmath') or {}
+        now, prev = rm.get('now') or {}, rm.get('prev') or {}
+        if not now:
+            return {}
+        kpis = []
+        def delta(k):   # solo se muestra si mejora
+            ok = prev.get(k) is not None and now.get(k) is not None and now[k] > prev[k]
+            return abs_delta(now[k], prev[k], 0) if ok else ""
+        if now.get('site_score') is not None:
+            kpis.append({'label': 'Puntuación SEO de la web', 'value': f"{now['site_score']}/100", 'delta': delta('site_score')})
+        if now.get('avg_score') is not None:
+            kpis.append({'label': 'Puntuación media del contenido', 'value': f"{now['avg_score']}/100", 'delta': delta('avg_score')})
+        if now.get('posts_green') is not None:
+            kpis.append({'label': 'Páginas en verde', 'value': fmt_int(now['posts_green']), 'delta': delta('posts_green')})
+        if now.get('tests_total'):
+            kpis.append({'label': 'Pruebas superadas', 'value': f"{now['tests_ok']}/{now['tests_total']}", 'delta': delta('tests_ok')})
+        narrative = "Puntuación de Rank Math: cómo de optimizados están la web y su contenido para Google."
+        return {'kpis': kpis, 'narrative': narrative}
 
     # ── Oportunidades página 2 (#6) ──────────────────────────
     def analyze_opportunities(self) -> Dict:
@@ -661,7 +739,6 @@ class SEOAnalyzer:
         opps = self.analyze_opportunities()
         top_kw = ", ".join(k['query'] for k in kw.get('top_keywords', [])[:6]) or "sin datos"
         gained = ", ".join(f"{m['query']} ({fmt_dec(m['delta'], sign=True)})" for m in moves.get('gained', [])[:4]) or "—"
-        lost = ", ".join(f"{m['query']} ({fmt_dec(m['delta'], sign=True)})" for m in moves.get('lost', [])[:4]) or "—"
         _opp = opps.get('opportunities', []) if isinstance(opps, dict) else opps
         opp_list = ", ".join(o['query'] for o in (_opp or [])[:5]) or "—"
 
@@ -681,11 +758,11 @@ class SEOAnalyzer:
             "punto de miles y coma decimal (1.330 usuarios · CTR 1,45 % · posición 9,6).\n"
             "executive_summary: 3 frases. insights: 1 frase por sección (máx 20 palabras). "
             "recommendations: 4 acciones concretas y priorizadas para este cliente. "
-            "anomalies: hasta 3 cambios relevantes (subidas o caídas fuertes); usa [] si no hay.\n\n"
+            "anomalies: hasta 3 logros o subidas destacadas; usa [] si no hay. No menciones caídas ni keywords que bajan.\n\n"
             f"DATOS:\nMes: {self.month_name} {self.year}\n"
             f"Usuarios: {fmt_int(t['users'])} ({t.get('d_users', '—')}), Sesiones: {fmt_int(t['sessions'])} ({t.get('d_sessions', '—')}), Rebote: {fmt_pct(t['bounce_rate'])} ({t.get('d_bounce', '—')})\n"
             f"Impresiones: {fmt_int(sc['impressions'])} ({sc.get('d_impressions', '—')}), Clics: {fmt_int(sc['clicks'])} ({sc.get('d_clicks', '—')}), CTR: {fmt_pct(sc['ctr'], 2)}, Posición: {fmt_dec(sc['position'])} ({sc.get('d_position', '—')})\n"
-            f"Top keywords: {top_kw}\nSuben: {gained}\nBajan: {lost}\nOportunidades pág.2: {opp_list}"
+            f"Top keywords: {top_kw}\nSuben: {gained}\nOportunidades pág.2: {opp_list}"
             f"{self._insights_prompt()}"
         )
         # Mismos datos y nivel → misma respuesta guardada, sin gastar otra llamada
@@ -711,12 +788,11 @@ class SEOAnalyzer:
         return data
 
     def _insights_prompt(self) -> str:
-        """Líneas extra para la IA con las señales cruzadas (contenido que cae y tráfico desde IA)."""
+        """Líneas extra para la IA: tráfico desde IA (las páginas que pierden clics solo van a propuestas)."""
         lines = []
-        dec = (self.insights.get('decay') or {}).get('pages', [])
-        if dec:
-            lines.append("Páginas que pierden clics (3 meses vs 3 anteriores): " + ", ".join(
-                f"{p['page'].split('://')[-1][-60:]} ({fmt_pct(p['pct'], 0)})" for p in dec[:4]))
+        dom = self.analyze_dominance()
+        if dom:
+            lines.append(f"Búsquedas en el top 3: {fmt_int(dom['count'])} (mes anterior: {dom.get('prev_count', '—')})")
         ai = self.insights.get('ai') or {}
         if ai.get('sessions'):
             lines.append(f"Visitas desde asistentes de IA: {fmt_int(ai['sessions'])} (mes anterior: {ai.get('prev_sessions', '—')})")
@@ -757,6 +833,10 @@ class SEOAnalyzer:
             'highlights': self.analyze_highlights(),
             'keyword_movements': self.analyze_keyword_movements(),
             'opportunities': self.analyze_opportunities(),
+            'dominance': self.analyze_dominance(),
+            'targets': self.analyze_targets(),
+            'crux': self.analyze_crux(),
+            'rankmath': self.analyze_rankmath(),
             'insights': bundle.get('insights', {}) or {},
             'executive_summary': exec_summary,
             'recommendations': bundle.get('recommendations', []) or [],

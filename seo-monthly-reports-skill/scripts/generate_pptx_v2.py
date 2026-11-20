@@ -22,7 +22,7 @@ from generate_pptx import _get_logo, _get_client_logo, convert_to_pdf, _CACHE_DI
 from generate_pptx import ROW_H, ROW_H_MIN, _rows_fit, _paginate_rows, _paginate_text
 from generate_pptx import (NARR_SIZE, SHORT_ROWS, TABLE_FONT, TABLE_HEAD_FONT, _narr_bottom, _clip,
                            _short_table, _table_font, _text_lines)
-from generate_pptx import _ai_slide_data, _decay_slide_data, _conv_slide_data
+from generate_pptx import _ai_slide_data, _decay_slide_data, _conv_slide_data, _dominance_rows, _targets_rows, _crux_rows
 
 try:
     import charts as gcharts
@@ -334,20 +334,20 @@ def add_highlights(prs, highlights):
 
     if improve:
         yi, hi = y + h + 0.17, 1.15
-        _round(s, 0.6, yi, TABLE_W, hi, RGBColor(0xFF, 0xF1, 0xEC), radius=0.12)
-        _round(s, 0.6, yi, 0.07, hi, CORAL, radius=0.0)
-        chip = _oval(s, 0.85, yi + 0.18, 0.32, CORAL)
+        _round(s, 0.6, yi, TABLE_W, hi, RGBColor(0xEC, 0xFA, 0xF1), radius=0.12)
+        _round(s, 0.6, yi, 0.07, hi, GREEN, radius=0.0)
+        chip = _oval(s, 0.85, yi + 0.18, 0.32, GREEN)
         cp = chip.text_frame.paragraphs[0]
         cp.alignment = PP_ALIGN.CENTER
-        cr = cp.add_run(); cr.text = "!"; cr.font.size = Pt(11); cr.font.bold = True; cr.font.color.rgb = WHITE
-        _text(s, 1.32, yi + 0.12, 4.0, 0.26, "punto a mejorar", size=9, color=CORAL,
+        cr = cp.add_run(); cr.text = "→"; cr.font.size = Pt(11); cr.font.bold = True; cr.font.color.rgb = WHITE
+        _text(s, 1.32, yi + 0.12, 4.0, 0.26, "próxima oportunidad", size=9, color=GREEN,
               font=F_BODY_SB, caps=True, track=60)
         _text(s, 1.32, yi + 0.36, 5.4, 0.34, improve["label"], size=15, color=NAVY, font=F_BODY_SB)
         _text(s, 1.32, yi + 0.68, 5.6, 0.26, improve["detail"], size=11, color=MUTE, font=F_BODY)
         if improve.get("note"):
             _text(s, 1.32, yi + 0.88, 6.9, 0.26, improve["note"], size=10, color=NAVY, font=F_BODY, italic=True)
         if improve.get("value"):
-            _text(s, 6.6, yi + 0.2, 2.1, 0.6, improve["value"], size=26, color=CORAL,
+            _text(s, 6.6, yi + 0.2, 2.1, 0.6, improve["value"], size=26, color=GREEN,
                   font=F_TITLE, align=PP_ALIGN.RIGHT)
 
 
@@ -510,12 +510,12 @@ def add_table(prs, kicker, title, headers, rows, narrative, section, col_widths=
 
 def add_keyword_movements(prs, movements, section):
     gained = movements.get("gained", [])
-    lost = movements.get("lost", [])
-    if not gained and not lost:
+    new = movements.get("new", [])
+    if not gained and not new:
         return
     s = _slide(prs)
     _decor(s)
-    _header(s, "posiciones que se mueven", "KEYWORDS EN MOVIMIENTO", section)
+    _header(s, "búsquedas que crecen", "KEYWORDS QUE CRECEN", section)
 
     def _col(items, x0, title, accent, up):
         _round(s, x0, 1.9, 0.32, 0.32, accent, radius=0.5)
@@ -527,12 +527,13 @@ def add_keyword_movements(prs, movements, section):
             _round(s, x0, y, 4.05, 0.5, SOFT, radius=0.18)
             _text(s, x0 + 0.18, y + 0.05, 2.75, 0.4, _clip(m.get("query", ""), 2.75, 12),
                   size=12, color=NAVY, font=F_BODY, wrap=False, anchor=MSO_ANCHOR.MIDDLE)
-            _text(s, x0 + 2.9, y + 0.05, 1.0, 0.4, fmt_dec(m.get("delta", 0), sign=True),
+            _text(s, x0 + 2.9, y + 0.05, 1.0, 0.4,
+                  fmt_dec(m["delta"], sign=True) if "delta" in m else f"pos {fmt_dec(m.get('position', 0))}",
                   size=13, color=accent, font=F_BODY_SB, align=PP_ALIGN.RIGHT, anchor=MSO_ANCHOR.MIDDLE)
             y += 0.58
 
     _col(gained, 0.6, "Subieron", GREEN, True)
-    _col(lost, 5.0, "Bajaron", CORAL, False)
+    _col(new, 5.0, "Nuevas en Google", GREEN, True)
 
 
 # ── Oportunidades página 2 ───────────────────────────────────
@@ -833,7 +834,7 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
     # Señales y análisis que deciden si «Análisis y Recomendaciones» sale (índice y diapositivas)
     _recs = analysis.get('recommendations', [])
     _anom = analysis.get('anomalies', [])
-    _dec = _decay_slide_data(analysis) if 'recomendaciones' in sec else None
+    _dec = None  # las páginas que pierden clics solo van al archivo interno de propuestas
     show_recs = 'recomendaciones' in sec and bool(_recs or _anom or _dec)
     _conv = _conv_slide_data(analysis) if 'conversiones' in sec else None
 
@@ -848,7 +849,9 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
         idx.append((f"{n:02d}", "Conversiones desde Google")); n += 1
     if 'ads' in sec and ads:
         idx.append((f"{n:02d}", "Google Ads")); n += 1
-    if 'pagespeed' in sec and pagespeed:
+    crux, rankmath = analysis.get('crux') or {}, analysis.get('rankmath') or {}
+    tech = 'pagespeed' in sec and (pagespeed or crux or rankmath)
+    if tech:
         idx.append((f"{n:02d}", "SEO Técnico")); n += 1
     if show_recs:
         idx.append((f"{n:02d}", "Análisis y Recomendaciones")); n += 1
@@ -955,6 +958,23 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
                         fmt_int(k['clicks']), fmt_pct(k.get('ctr', 0))] for k in kws],
                       kw['narrative'], lbl, col_widths=[4, 1.2, 1.5, 1, 1], note=note)
 
+        dom = analysis.get('dominance') or {}
+        if dom:
+            img = gcharts.dominance_bars(dom['series']) if gcharts else None
+            if img:
+                add_image(prs, "donde ya somos referencia", "BÚSQUEDAS QUE DOMINAMOS", img, dom['narrative'], lbl)
+            if dom.get('top'):
+                add_table(prs, "entre los 3 primeros", "EN EL TOP 3 DE GOOGLE", ["Keyword", "Posición", "Clics", "Impresiones"],
+                          _dominance_rows(analysis), dom['narrative'], lbl, col_widths=[4.6, 1.15, 1.15, 1.4])
+        tg = analysis.get('targets') or {}
+        if tg:
+            img = gcharts.target_positions_line(tg['labels'], tg['series']) if gcharts else None
+            if img:
+                add_image(prs, "las búsquedas que más importan", "EVOLUCIÓN KEYWORDS OBJETIVO", img, tg['narrative'], lbl)
+            add_table(prs, "las búsquedas que más importan", "KEYWORDS OBJETIVO",
+                      ["Keyword", "Ahora", "Mejor posición", "Evolución", "Clics"],
+                      _targets_rows(analysis), tg['narrative'], lbl, col_widths=[3.5, 1.4, 1.4, 1.2, 0.8])
+
         add_keyword_movements(prs, kw_moves, lbl)
         add_opportunities(prs, opps, lbl)
 
@@ -1012,9 +1032,15 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
 
     add_panel_screenshots(prs, client_name)
 
-    if 'pagespeed' in sec and pagespeed:
-        num = sec_nums["SEO Técnico"]
-        add_pagespeed(prs, pagespeed, f"{int(num)}. SEO Técnico")
+    if tech:
+        lbl = f"{int(sec_nums['SEO Técnico'])}. SEO Técnico"
+        if pagespeed:
+            add_pagespeed(prs, pagespeed, lbl)
+        if crux:
+            add_table(prs, "lo que notan tus visitas", "VELOCIDAD REAL", ["Métrica", "Ahora", "Objetivo Google", "Estado", ""],
+                      _crux_rows(analysis), crux['narrative'], lbl, col_widths=[3.6, 1.15, 1.45, 1.05, 1.05])
+        if rankmath.get('kpis'):
+            add_kpi(prs, "cómo de optimizada está", "SALUD SEO · RANK MATH", rankmath['narrative'], rankmath['kpis'], lbl)
 
     if show_recs:
         lbl = f"{int(sec_nums['Análisis y Recomendaciones'])}. Recomendaciones"

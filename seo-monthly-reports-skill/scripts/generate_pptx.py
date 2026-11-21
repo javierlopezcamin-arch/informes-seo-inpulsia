@@ -182,6 +182,13 @@ def _logo_is_light(path: str) -> bool:
         return False
 
 
+def _positive_delta(delta: str, lower_better: bool = False) -> str:
+    """El informe del cliente solo enseña las mejoras: una variación que empeora se oculta."""
+    delta = delta or ""
+    worse = delta.startswith("▼") if not lower_better else delta.startswith("▲")
+    return "" if worse else delta
+
+
 def _delta_color(delta: str, lower_better: bool = False) -> RGBColor:
     """Verde si mejora, red si empeora. En rebote y posición bajar es mejorar."""
     up, down = (RED, GREEN) if lower_better else (GREEN, RED)
@@ -467,7 +474,7 @@ def add_kpi_slide(prs, title: str, narrative: str, kpis: list, section: str, sec
 
     for i, kpi in enumerate(kpis):
         x = margin + i * (card_w + gap)
-        delta = kpi.get("delta", "")
+        delta = _positive_delta(kpi.get("delta", ""), kpi.get("lower_better", False))
         dcol = _delta_color(delta, kpi.get("lower_better", False))
 
         # Card navy
@@ -1033,7 +1040,7 @@ def _ai_slide_data(analysis):
         return None
     prev = ai.get('prev_sessions')
     trend = ""
-    if prev:
+    if prev and ai['sessions'] > prev:   # solo si crece
         trend = f" ({fmt_pct((ai['sessions'] - prev) / prev * 100, 0, sign=True)} frente al mes anterior)"
     narrative = (f"{fmt_int(ai['sessions'])} visitas llegaron este mes desde asistentes de IA{trend}. "
                  "Significa que estos asistentes enlazan la web en sus respuestas: un canal nuevo que conviene seguir.")

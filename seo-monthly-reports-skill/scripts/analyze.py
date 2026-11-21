@@ -355,15 +355,14 @@ class SEOAnalyzer:
             ("Impresiones", s.get('impressions', 0), sp.get('impressions', 0)),
             ("Clics", s.get('clicks', 0), sp.get('clicks', 0)),
         ]:
-            if curr or prev:
+            if curr and prev and curr > prev:   # el informe del cliente solo enseña lo que crece
                 metrics.append({"label": label, "current": curr, "previous": prev})
 
         if not metrics:
             return {'metrics': [], 'narrative': ''}
 
         pm = 12 if self.month == 1 else self.month - 1
-        narrative = (f"Cuánto cambia cada métrica respecto a {MESES.get(pm, 'el mes anterior')}: "
-                     "en verde lo que sube y en rojo lo que baja.")
+        narrative = f"Lo que más ha crecido respecto a {MESES.get(pm, 'el mes anterior')}."
         return {'metrics': metrics, 'narrative': narrative}
 
     # ── Lo más destacado del mes (por reglas, sin IA) ────────
@@ -756,7 +755,7 @@ class SEOAnalyzer:
         tono = ("Tono SIEMPRE positivo y constructivo, frases breves; no uses palabras negativas."
                 if level == "positivo" else
                 "Interpreta los datos: correlaciones, causas y tendencias. Constructivo pero realista; "
-                "señala con tacto lo que necesita atención.")
+                "señala con tacto lo que necesita atención como oportunidad, sin citar porcentajes de caída.")
 
         prompt = (
             "Eres un consultor SEO senior. Analiza estos datos mensuales y responde SOLO con JSON "

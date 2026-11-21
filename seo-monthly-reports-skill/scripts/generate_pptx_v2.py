@@ -22,7 +22,7 @@ from generate_pptx import _get_logo, _get_client_logo, convert_to_pdf, _CACHE_DI
 from generate_pptx import ROW_H, ROW_H_MIN, _rows_fit, _paginate_rows, _paginate_text
 from generate_pptx import (NARR_SIZE, SHORT_ROWS, TABLE_FONT, TABLE_HEAD_FONT, _narr_bottom, _clip,
                            _short_table, _table_font, _text_lines)
-from generate_pptx import _ai_slide_data, _decay_slide_data, _conv_slide_data, _dominance_rows, _targets_rows, _crux_rows
+from generate_pptx import _positive_delta, _ai_slide_data, _decay_slide_data, _conv_slide_data, _dominance_rows, _targets_rows, _crux_rows
 
 try:
     import charts as gcharts
@@ -367,7 +367,7 @@ def add_kpi(prs, kicker, title, narrative, kpis, section):
 
     for i, kpi in enumerate(kpis):
         x = margin + i * (card_w + gap)
-        delta = kpi.get("delta", "")
+        delta = _positive_delta(kpi.get("delta", ""), kpi.get("lower_better", False))
         dcol = _delta_color(delta, kpi.get("lower_better", False))
 
         _round(s, x, card_y, card_w, card_h, SOFT, radius=0.1, line=GHOST, line_w=1.0)

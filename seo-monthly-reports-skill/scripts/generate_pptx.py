@@ -1049,9 +1049,15 @@ def _ai_slide_data(analysis):
 
 
 def _dominance_rows(analysis):
+    """Keyword · posición · antes · mejora (solo si sube) · clics."""
+    def gain(k):
+        if k.get('new'):
+            return "nueva"
+        return f"▲ {fmt_dec(k['gain'])} pos." if (k.get('gain') or 0) >= 1 else ""
     dom = analysis.get('dominance') or {}
-    return [[k['query'], fmt_dec(k['position']), fmt_int(k['clicks']), fmt_int(k['impressions'])]
-            for k in dom.get('top', [])[:8]]
+    return [[k['query'], fmt_dec(k['position']),
+             fmt_dec(k['before']) if k.get('before') is not None and (k.get('gain') or 0) >= 1 else "",
+             gain(k), fmt_int(k['clicks'])] for k in dom.get('top', [])[:8]]
 
 
 def _targets_rows(analysis):
@@ -1789,9 +1795,9 @@ def generate_pptx(analysis: dict, client_name: str, sections: set = None, includ
             if img:
                 add_image_chart_slide(prs, "Búsquedas que Dominamos", img, dom['narrative'], s_label, s_num)
             if dom.get('top'):
-                add_table_slide(prs, "En el Top 3 de Google", ["Keyword", "Posición", "Clics", "Impresiones"],
+                add_table_slide(prs, "En la Primera Página de Google", ["Keyword", "Posición", "Antes", "Mejora", "Clics"],
                                 _dominance_rows(analysis), dom['narrative'], s_label, s_num,
-                                col_widths=[4.9, 1.2, 1.2, 1.4])
+                                col_widths=[4.0, 1.1, 1.1, 1.4, 1.1])
         tg = analysis.get('targets') or {}
         if tg:
             img = gcharts.target_positions_line(tg['labels'], tg['series']) if gcharts else None

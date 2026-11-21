@@ -35,7 +35,7 @@ def target_keywords_for(client: str) -> list:
 
 def _month(ext, site_url: str, month: int, year: int, targets: list) -> dict:
     key = (f"kwtrack_{hashlib.md5(site_url.encode()).hexdigest()[:8]}_{year}_{month:02d}_"
-           f"{hashlib.md5('|'.join(targets).encode()).hexdigest()[:6]}_v1")
+           f"{hashlib.md5('|'.join(targets).encode()).hexdigest()[:6]}_v2")
     cached = cache_read(key, month_ttl_hours(month, year))
     if cached:
         return cached
@@ -50,7 +50,13 @@ def _month(ext, site_url: str, month: int, year: int, targets: list) -> dict:
                     'clicks': int(r.get('clicks', 0)), 'impressions': int(r.get('impressions', 0))}
                    for r in queries if r['position'] <= 3 and r.get('impressions', 0) >= TOP3_MIN_IMPRESSIONS),
                   key=lambda k: (-k['clicks'], -k['impressions']))
-    top10 = sum(1 for r in queries if r['position'] <= 10 and r.get('impressions', 0) >= TOP3_MIN_IMPRESSIONS)
+    top10_list = sorted(({'query': r['keys'][0], 'position': round(r['position'], 1),
+                          'clicks': int(r.get('clicks', 0)), 'impressions': int(r.get('impressions', 0))}
+                         for r in queries if r['position'] <= 10 and r.get('impressions', 0) >= TOP3_MIN_IMPRESSIONS),
+                        key=lambda k: (-k['clicks'], -k['impressions']))
+    top10 = len(top10_list)
+    # Posición de cada búsqueda hasta la 100, para calcular cuánto sube el mes siguiente
+    pos_map = {r['keys'][0]: round(r['position'], 1) for r in queries if r['position'] <= 100}
     pages = q({'dimensions': ['page'], 'rowLimit': ROWS})
 
     tgt = {}
@@ -64,7 +70,8 @@ def _month(ext, site_url: str, month: int, year: int, targets: list) -> dict:
                       'impressions': int(r.get('impressions', 0))}
 
     data = {'month': month, 'year': year, 'label': f"{MESES.get(month, month)[:3]} {year}",
-            'top3_count': len(top3), 'top3': top3[:10], 'top10_count': top10,
+            'top3_count': len(top3), 'top3': top3[:10], 'top10_count': top10, 'top10': top10_list[:150],
+            'pos_map': pos_map,
             'pages_count': sum(1 for r in pages if r.get('impressions', 0) > 0), 'targets': tgt}
     cache_write(key, data)
     return data

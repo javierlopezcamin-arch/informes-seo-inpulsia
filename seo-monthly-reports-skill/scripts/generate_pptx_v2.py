@@ -964,8 +964,9 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
             if img:
                 add_image(prs, "donde ya somos referencia", "BÚSQUEDAS QUE DOMINAMOS", img, dom['narrative'], lbl)
             if dom.get('top'):
-                add_table(prs, "entre los 3 primeros", "EN EL TOP 3 DE GOOGLE", ["Keyword", "Posición", "Clics", "Impresiones"],
-                          _dominance_rows(analysis), dom['narrative'], lbl, col_widths=[4.6, 1.15, 1.15, 1.4])
+                add_table(prs, "donde ya nos encuentran", "EN LA PRIMERA PÁGINA DE GOOGLE",
+                          ["Keyword", "Posición", "Antes", "Mejora", "Clics"],
+                          _dominance_rows(analysis), dom['narrative'], lbl, col_widths=[3.8, 1.05, 1.05, 1.4, 1.0])
         tg = analysis.get('targets') or {}
         if tg:
             img = gcharts.target_positions_line(tg['labels'], tg['series']) if gcharts else None

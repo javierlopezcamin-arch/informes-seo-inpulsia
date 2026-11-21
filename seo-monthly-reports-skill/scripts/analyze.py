@@ -476,21 +476,33 @@ class SEOAnalyzer:
 
     # ── Búsquedas que dominamos (top 3) y páginas en Google ──
     def analyze_dominance(self) -> Dict:
+        """Búsquedas en la primera página (top 10) y cuánto han subido frente al mes anterior."""
         months = (self.insights.get('kw_tracking') or {}).get('months') or []
-        if not months or not months[-1].get('top3_count'):
+        if not months or not months[-1].get('top10_count'):
             return {}
         cur = months[-1]
         prev = months[-2] if len(months) >= 2 else {}
-        d = cur['top3_count'] - prev.get('top3_count', cur['top3_count'])
-        narrative = f"La web aparece en el top 3 de Google en {fmt_int(cur['top3_count'])} búsquedas"
+        prev_pos = prev.get('pos_map') or {}
+        rows = []
+        for k in cur.get('top10') or cur.get('top3') or []:
+            before = prev_pos.get(k['query'])
+            gain = round(before - k['position'], 1) if before is not None else None
+            rows.append({**k, 'before': before, 'gain': gain,
+                         'new': bool(prev_pos) and before is None})
+        # Primero las que más suben (y las nuevas), luego las que más clics traen
+        rows.sort(key=lambda r: (0 if (r['gain'] or 0) >= 1 else 1 if r['new'] else 2,
+                                 -(r['gain'] or 0), -r['clicks'], -r['impressions']))
+        up = sum(1 for r in rows if (r['gain'] or 0) >= 1 or r['new'])
+        d = cur['top10_count'] - prev.get('top10_count', cur['top10_count'])
+        narrative = f"La web aparece en la primera página de Google en {fmt_int(cur['top10_count'])} búsquedas"
         narrative += (f" ({fmt_int(d)} más que el mes anterior)" if d > 0 else "")
-        narrative += f" y en la primera página en {fmt_int(cur['top10_count'])}."
+        narrative += (f", {fmt_int(cur['top3_count'])} de ellas en el top 3" if cur.get('top3_count') else "")
+        narrative += (f". {fmt_int(up)} han subido o entrado nuevas este mes." if up else ".")
         first = next((m for m in months if m.get('top10_count')), cur)
         growing = cur['top3_count'] >= first['top3_count'] and cur['top10_count'] >= first['top10_count']
         return {'count': cur['top3_count'], 'prev_count': prev.get('top3_count'), 'top10': cur['top10_count'],
-                'growing': growing,
-                'pages': cur.get('pages_count', 0), 'prev_pages': prev.get('pages_count'),
-                'top': cur.get('top3', [])[:8], 'narrative': narrative,
+                'growing': growing, 'pages': cur.get('pages_count', 0), 'prev_pages': prev.get('pages_count'),
+                'top': rows[:8], 'narrative': narrative,
                 'series': [{'label': m['label'], 'top3': m['top3_count'], 'top10': m['top10_count'],
                             'pages': m.get('pages_count', 0)} for m in months]}
 

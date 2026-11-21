@@ -509,9 +509,14 @@ class SEOAnalyzer:
                          'improved': first is not None and pos[-1] is not None and pos[-1] < first})
             if len(known) >= 2:
                 series.append({'query': t, 'positions': pos})
+        # Con muchas (Rank Math da una por página): las 10 con posición y más impresiones
+        rows = sorted(rows, key=lambda r: (r['now'] is None, -r['impressions'], r['now'] or 999))[:10]
+        keep = {r['query'] for r in rows}
+        series = sorted((x for x in series if x['query'] in keep),
+                        key=lambda x: x['positions'][-1] if x['positions'][-1] is not None else 999)[:6]
         up = sum(1 for r in rows if r['improved'])
         top10 = sum(1 for r in rows if r['now'] is not None and r['now'] <= 10)
-        narrative = (f"{top10} de {len(rows)} keywords objetivo están en la primera página de Google"
+        narrative = (f"{top10} de {len(rows)} keywords principales están en la primera página de Google"
                      + (f" y {up} han mejorado su posición en los últimos meses." if up else "."))
         return {'rows': rows, 'series': series, 'labels': [m['label'] for m in months],
                 'first_label': months[0]['label'], 'narrative': narrative}

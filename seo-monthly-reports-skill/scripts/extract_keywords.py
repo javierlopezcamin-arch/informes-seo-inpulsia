@@ -17,6 +17,12 @@ ROWS = 5000
 
 
 def target_keywords_for(client: str) -> list:
+    """Palabras clave principales de Rank Math; si la web no está conectada, KEYWORDS_OBJETIVO_<C>."""
+    from extract_rankmath import rankmath_configured, focus_keywords
+    if rankmath_configured(client):
+        kws = focus_keywords(client)
+        if kws:
+            return kws
     raw = os.getenv(f"KEYWORDS_OBJETIVO_{client.upper()}", "")
     seen, out = set(), []
     for k in raw.split(","):
@@ -24,7 +30,7 @@ def target_keywords_for(client: str) -> list:
         if k and k not in seen:
             seen.add(k)
             out.append(k)
-    return out[:15]
+    return out[:60]
 
 
 def _month(ext, site_url: str, month: int, year: int, targets: list) -> dict:

@@ -51,7 +51,7 @@ Candidatas (gratis o casi):
 
 ## Estado (2026-11-20)
 Hecho 1-5 (Rank Math por opción B: API de WordPress con contraseña de aplicación).
-- Configuración por cliente en el `.env`: `KEYWORDS_OBJETIVO_<C>`, `WP_USER_<C>`, `WP_APP_PASSWORD_<C>` (y `WP_URL_<C>` opcional).
+- Keywords objetivo = palabra clave principal de Rank Math de cada página (las 10 con más visibilidad). Usuario y contraseña de aplicación de WordPress desde el panel (ficha del cliente). `KEYWORDS_OBJETIVO_<C>` queda solo como respaldo.
 - CrUX necesita activar la API «Chrome UX Report» en el proyecto de Google Cloud de la clave de PageSpeed (hoy da 403).
 - «Páginas indexadas» no existe en la API de Search Console: se calcula «páginas que aparecen en Google» (con impresiones), guardado pero aún sin diapositiva.
 - Rank Math guarda una foto mensual en `seo-monthly-reports-skill/datos/rankmath/` (fuera de git).

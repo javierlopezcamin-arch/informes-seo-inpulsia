@@ -6,6 +6,7 @@ Configuración por cliente en el .env:
   WP_USER_<CLIENTE>=usuario de WordPress
   WP_APP_PASSWORD_<CLIENTE>=contraseña de aplicación (Usuarios → Perfil → Contraseñas de aplicación)
   WP_URL_<CLIENTE>=https://web.com   (opcional; por defecto, la URL de Search Console)
+Se rellenan desde el panel (ficha del cliente → WordPress); no hace falta editar el .env.
 
 Rank Math solo da la foto de hoy, así que cada mes se guarda en datos/rankmath/<cliente>.json
 para mostrar la evolución.
@@ -56,6 +57,30 @@ def _run(client: str, name: str, inp: dict, timeout: int = 60):
         return json.loads(r.read())
 
 
+def _data(resp):
+    """Algunas versiones envuelven la respuesta en {"success": true, "data": ...}."""
+    return resp.get("data") if isinstance(resp, dict) and "data" in resp and "success" in resp else resp
+
+
+def focus_keywords(client: str) -> list:
+    """Palabra clave principal de Rank Math de cada página o post (la primera si hay varias),
+    sin repetir. Son las keywords objetivo del informe."""
+    seen, out = set(), []
+    for flt in (None, "great", "good", "bad"):
+        try:
+            resp = _data(_run(client, "rank-math/get-seo-scores",
+                              {"number_of_posts": 100, **({"seo_filter": flt} if flt else {})}))
+        except Exception as e:
+            print(f"  ⚠️  Rank Math (palabras clave): {type(e).__name__}: {str(e)[:120]}")
+            break
+        for p in resp or []:
+            k = " ".join(((p or {}).get("keyword") or "").split(",")[0].strip().lower().split())
+            if k and k not in seen:
+                seen.add(k)
+                out.append(k)
+    return out[:60]
+
+
 def _history_path(client: str) -> str:
     return os.path.join(_BASE, f"{client.lower()}.json")
 
@@ -84,17 +109,17 @@ def extract_rankmath(client: str, month: int, year: int) -> dict:
     try:
         posts = {}
         for flt in ("great", "good", "bad"):
-            for p in _run(client, "rank-math/get-seo-scores", {"seo_filter": flt, "number_of_posts": 100}) or []:
+            for p in _data(_run(client, "rank-math/get-seo-scores", {"seo_filter": flt, "number_of_posts": 100})) or []:
                 if isinstance(p, dict) and p.get("score") is not None:
                     posts[p.get("post_id")] = p["score"]
         scores = list(posts.values())
         if scores:
             snap.update({"posts_scored": len(scores), "avg_score": round(sum(scores) / len(scores)),
-                         "posts_green": sum(1 for s in scores if s > 80)})
+                         "posts_green": sum(1 for s in scores if s >= 80)})
     except Exception as e:
         print(f"  ⚠️  Rank Math (puntuaciones): {type(e).__name__}: {str(e)[:120]}")
     try:
-        audit = _run(client, "rank-math/audit-site-seo", {"refresh": True}, timeout=120) or {}
+        audit = _data(_run(client, "rank-math/audit-site-seo", {"refresh": True}, timeout=120)) or {}
         if isinstance(audit, dict) and audit.get("score") is not None:
             st = audit.get("statuses") or {}
             snap.update({"site_score": audit["score"], "tests_ok": st.get("ok", 0),

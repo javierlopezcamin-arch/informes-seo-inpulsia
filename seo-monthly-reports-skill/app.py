@@ -497,6 +497,43 @@ def set_web_flag(name, on):
     """Marca (o desmarca) el cliente para generar el archivo de diseño web (posts, Word)."""
     _set_flag(name, "WEB_EN_INFORME", on)
 
+def get_env_value(name, var):
+    with open(ENV_PATH, "r", encoding="utf-8") as f:
+        for line in f:
+            m = re.match(rf"\s*{var}_{name}\s*=\s*(.*)$", line)
+            if m: return m.group(1).strip()
+    return ""
+
+def set_env_value(name, var, value):
+    """Fija (o borra si va vacío) VAR_<CLIENTE> justo después de su URL de Search Console."""
+    value = (value or "").strip()
+    with open(ENV_PATH, "r", encoding="utf-8") as f:
+        content = f.read()
+    pat = rf"(?m)^\s*{var}_{name}\s*=.*\n?"
+    if re.search(pat, content):
+        content = re.sub(pat, (f"{var}_{name}={value}\n" if value else ""), content)
+    elif value:
+        m = re.search(rf"SEARCH_CONSOLE_URL_{name}\s*=\s*\S+", content)
+        if m:
+            content = content[:m.end()] + f"\n{var}_{name}={value}" + content[m.end():]
+    write_env(ENV_PATH, content)
+
+def test_wordpress(name):
+    """Comprueba la conexión con Rank Math y devuelve (ok, mensaje)."""
+    import importlib, extract_rankmath as rm
+    os.environ[f"WP_USER_{name}"] = get_env_value(name, "WP_USER")
+    os.environ[f"WP_APP_PASSWORD_{name}"] = get_env_value(name, "WP_APP_PASSWORD")
+    os.environ[f"WP_URL_{name}"] = get_env_value(name, "WP_URL")
+    os.environ[f"SEARCH_CONSOLE_URL_{name}"] = get_client_data(name)[1]
+    importlib.reload(rm)
+    try:
+        kws = rm.focus_keywords(name)
+    except Exception as e:
+        return False, f"No se pudo conectar: {e}"
+    if not kws:
+        return False, "Conectado, pero no se encontraron palabras clave principales en Rank Math (o el usuario o la contraseña no son correctos)."
+    return True, f"Conectado: {len(kws)} palabras clave de Rank Math (p. ej. {', '.join(kws[:3])})."
+
 def count_caps(name):
     d = os.path.join(BASE_DIR, "capturas", name)
     if not os.path.isdir(d): return 0
@@ -533,6 +570,7 @@ def delete_client(name):
         if re.match(rf"\s*ADS_EN_INFORME_{name}\s*=", line): continue
         if re.match(rf"\s*WEB_EN_INFORME_{name}\s*=", line): continue
         if re.match(rf"\s*WP_MCP_{name}\s*=", line): continue
+        if re.match(rf"\s*WP_(USER|APP_PASSWORD|URL)_{name}\s*=", line): continue
         if skip and line.strip() == "": skip = False; continue
         if not skip: new_lines.append(line)
     write_env(ENV_PATH, "".join(new_lines))
@@ -1143,6 +1181,14 @@ with tab2:
                 new_logo = st.text_input("Logo (opcional)", value=get_logo_url(c), key=f"edit_logo_{c}", placeholder="https://cliente.com/logo.png")
                 new_ads  = st.text_input("Google Ads Customer ID (opcional)", value=get_ads_id(c), key=f"edit_ads_{c}", placeholder="123-456-7890")
                 new_ads_flag = st.checkbox("Incluir Google Ads y archivo de propuestas en el informe", value=get_ads_flag(c), key=f"edit_adsflag_{c}")
+                st.caption("WordPress (Rank Math): palabras clave principales y puntuación SEO. "
+                           "La contraseña se crea en WordPress → Usuarios → Perfil → Contraseñas de aplicación.")
+                wc1, wc2 = st.columns(2)
+                with wc1:
+                    new_wp_user = st.text_input("Usuario de WordPress", value=get_env_value(c, "WP_USER"), key=f"edit_wpu_{c}")
+                with wc2:
+                    new_wp_pass = st.text_input("Contraseña de aplicación", value=get_env_value(c, "WP_APP_PASSWORD"),
+                                                type="password", key=f"edit_wpp_{c}", placeholder="xxxx xxxx xxxx xxxx xxxx xxxx")
                 _words = client_words(c)
                 if _words:
                     st.caption("Word de posts para el cliente: " + " · ".join(os.path.basename(w) for w in _words[:6])
@@ -1194,6 +1240,9 @@ with tab2:
                         update_client(c, new_ga4.strip(), new_sc.strip(), new_logo.strip())
                         set_ads_id(c, new_ads)
                         set_ads_flag(c, new_ads_flag)
+                        set_env_value(c, "WP_USER", new_wp_user)
+                        set_env_value(c, "WP_APP_PASSWORD", new_wp_pass)
+                        _wp = test_wordpress(c) if (new_wp_user.strip() and new_wp_pass.strip()) else None
                         st.session_state.pop(f"adsrow_{c}", None)  # que la casilla de la lista refleje lo guardado
                         if _do_save:
                             ac.forget_client(c)  # los datos cambiaron: el estado anterior ya no vale
@@ -1202,6 +1251,10 @@ with tab2:
                         else:
                             with st.spinner("Verificando acceso..."):
                                 st.session_state["flash"] = _verify_flash(c, ac.check_and_store([c])[c])
+                        if _wp:
+                            _f = st.session_state.get("flash") or ("success", "")
+                            st.session_state["flash"] = (_f[0] if _wp[0] else "warning",
+                                                         f"{_f[1]} · Rank Math: {_wp[1]}".strip(" ·"))
                         st.rerun()
 
             if st.session_state.get("confirm_del") == c:

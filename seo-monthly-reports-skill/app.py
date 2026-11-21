@@ -519,24 +519,39 @@ def set_env_value(name, var, value):
     write_env(ENV_PATH, content)
 
 def test_wordpress(name):
-    """Comprueba la conexión con Rank Math y devuelve (ok, mensaje)."""
-    import importlib, extract_rankmath as rm
-    os.environ[f"WP_USER_{name}"] = get_env_value(name, "WP_USER")
-    os.environ[f"WP_APP_PASSWORD_{name}"] = get_env_value(name, "WP_APP_PASSWORD")
-    os.environ[f"WP_URL_{name}"] = get_env_value(name, "WP_URL")
-    os.environ[f"SEARCH_CONSOLE_URL_{name}"] = get_client_data(name)[1]
-    importlib.reload(rm)
-    try:
-        kws = rm.focus_keywords(name)
-    except Exception as e:
-        from utils import cache_write
-        cache_write(f"wp_status_{name}", {"ok": False, "n": 0})
-        return False, f"No se pudo conectar: {e}"
+    """Comprueba la conexión con Rank Math y devuelve (ok, mensaje). Guarda el resultado para la etiqueta WP."""
+    import importlib, urllib.error, extract_rankmath as rm
     from utils import cache_write
-    cache_write(f"wp_status_{name}", {"ok": bool(kws), "n": len(kws)})
-    if not kws:
-        return False, "Conectado, pero no se encontraron palabras clave principales en Rank Math (o el usuario o la contraseña no son correctos)."
-    return True, f"Conectado: {len(kws)} palabras clave de Rank Math (p. ej. {', '.join(kws[:3])})."
+    keys = {f"WP_USER_{name}": get_env_value(name, "WP_USER"),
+            f"WP_APP_PASSWORD_{name}": get_env_value(name, "WP_APP_PASSWORD"),
+            f"WP_URL_{name}": get_env_value(name, "WP_URL"),
+            f"SEARCH_CONSOLE_URL_{name}": get_client_data(name)[1]}
+    saved = {k: os.environ.get(k) for k in keys}
+    os.environ.update(keys)
+    importlib.reload(rm)
+    ok, n, msg = False, 0, ""
+    try:
+        rm._run(name, "rank-math/get-seo-scores", {"number_of_posts": 1}, timeout=20)
+        kws = rm.focus_keywords(name)
+        ok, n = bool(kws), len(kws)
+        msg = (f"Conectado: {n} palabras clave de Rank Math (p. ej. {', '.join(kws[:3])})." if kws else
+               "Conectado, pero ninguna página tiene palabra clave principal en Rank Math.")
+    except urllib.error.HTTPError as e:
+        msg = {401: "usuario o contraseña de aplicación incorrectos (la contraseña normal no sirve).",
+               403: "el usuario no tiene permisos suficientes (hace falta un administrador o editor).",
+               404: "la web no tiene activo el acceso a las funciones de Rank Math (MCP / Abilities de WordPress)."
+               }.get(e.code, f"error HTTP {e.code}.")
+        msg = "No se pudo conectar: " + msg
+    except Exception as e:
+        msg = f"No se pudo conectar: {type(e).__name__}: {str(e)[:120]}"
+    finally:
+        # El panel lanza los informes como subprocesos: sin restaurar, heredarían estos valores
+        # aunque luego se cambien o borren en el .env
+        for k, v in saved.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+    cache_write(f"wp_status_{name}", {"ok": ok, "n": n})
+    return ok, msg
 
 def wp_pill(name):
     """Etiqueta WP: verde si la última prueba conectó con Rank Math, roja si falló, gris si no se ha probado."""

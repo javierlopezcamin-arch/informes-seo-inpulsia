@@ -529,10 +529,25 @@ def test_wordpress(name):
     try:
         kws = rm.focus_keywords(name)
     except Exception as e:
+        from utils import cache_write
+        cache_write(f"wp_status_{name}", {"ok": False, "n": 0})
         return False, f"No se pudo conectar: {e}"
+    from utils import cache_write
+    cache_write(f"wp_status_{name}", {"ok": bool(kws), "n": len(kws)})
     if not kws:
         return False, "Conectado, pero no se encontraron palabras clave principales en Rank Math (o el usuario o la contraseña no son correctos)."
     return True, f"Conectado: {len(kws)} palabras clave de Rank Math (p. ej. {', '.join(kws[:3])})."
+
+def wp_pill(name):
+    """Etiqueta WP: verde si la última prueba conectó con Rank Math, roja si falló, gris si no se ha probado."""
+    if not (get_env_value(name, "WP_USER") and get_env_value(name, "WP_APP_PASSWORD")):
+        return ""
+    from utils import cache_read
+    st_ = cache_read(f"wp_status_{name}", 24 * 365)
+    cls = "unk" if not st_ else ("ok" if st_.get("ok") else "bad")
+    tip = ("WordPress guardado, sin probar" if not st_ else
+           f"Rank Math conectado: {st_.get('n', 0)} palabras clave" if st_.get("ok") else "WordPress: no conecta")
+    return f'<span class="pill {cls}" title="{html.escape(tip)}">WP</span>'
 
 def count_caps(name):
     d = os.path.join(BASE_DIR, "capturas", name)
@@ -1053,7 +1068,7 @@ with tab2:
     with tb1:
         q = st.text_input("Buscar", placeholder="Buscar cliente…", key="cli_q", label_visibility="collapsed")
     with tb2:
-        flt = st.selectbox("Estado", ["Todos", "Con error", "Sin verificar", "Con acceso", "Con Ads marcado", "Con capturas", "Sin capturas", "Con Customer ID", "Sin Customer ID", "Error en Ads"], key="cli_f", label_visibility="collapsed")
+        flt = st.selectbox("Estado", ["Todos", "Con error", "Sin verificar", "Con acceso", "Con Ads marcado", "Con capturas", "Sin capturas", "Con Customer ID", "Sin Customer ID", "Error en Ads", "Con WordPress", "Sin WordPress"], key="cli_f", label_visibility="collapsed")
     with tb3:
         verify_all = st.button("Verificar todos", type="primary", use_container_width=True, key="verify_all", disabled=not clients)
     if verify_all:
@@ -1116,6 +1131,8 @@ with tab2:
             if flt == "Con Customer ID": return bool(get_ads_id(c))
             if flt == "Sin Customer ID": return not get_ads_id(c)
             if flt == "Error en Ads": return bool(ac.ads_error_text(status_all.get(c)))
+            if flt == "Con WordPress": return bool(get_env_value(c, "WP_APP_PASSWORD"))
+            if flt == "Sin WordPress": return not get_env_value(c, "WP_APP_PASSWORD")
             return True
         _sites = load_client_sites()
         _caps_by = {c: count_caps(c) for c in clients}
@@ -1146,6 +1163,7 @@ with tab2:
                 # Con Customer ID: verde/rojo si ya se verificó el acceso a Ads, gris si aún no
                 _ads_st = ("ok" if entry["ads"]["ok"] else "bad") if entry and entry.get("ads") else "unk"
                 pills += f'<span class="pill {_ads_st}">ADS · {html.escape(fmt_customer_id(ads_id))}</span>'
+            pills += wp_pill(c)
             _nc = _caps_by[c]
             pills += (f'<span class="pill ok">CAPTURAS · {_nc}</span>' if _nc else '<span class="pill unk">SIN CAPTURAS</span>')
             if entry:
@@ -1193,6 +1211,7 @@ with tab2:
                              disabled=not (get_env_value(c, "WP_USER") and get_env_value(c, "WP_APP_PASSWORD"))):
                     with st.spinner("Conectando con Rank Math…"):
                         st.session_state[f"wp_status_{c}"] = test_wordpress(c)
+                    st.rerun()   # que la etiqueta WP de la lista refleje la prueba
                 _wps = st.session_state.get(f"wp_status_{c}")
                 if _wps:
                     (st.success if _wps[0] else st.warning)(f"WordPress: {_wps[1]}")

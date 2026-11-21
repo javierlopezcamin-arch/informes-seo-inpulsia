@@ -1189,6 +1189,15 @@ with tab2:
                 with wc2:
                     new_wp_pass = st.text_input("Contraseña de aplicación", value=get_env_value(c, "WP_APP_PASSWORD"),
                                                 type="password", key=f"edit_wpp_{c}", placeholder="xxxx xxxx xxxx xxxx xxxx xxxx")
+                if st.button("Probar conexión con WordPress", key=f"wptest_{c}",
+                             disabled=not (get_env_value(c, "WP_USER") and get_env_value(c, "WP_APP_PASSWORD"))):
+                    with st.spinner("Conectando con Rank Math…"):
+                        st.session_state[f"wp_status_{c}"] = test_wordpress(c)
+                _wps = st.session_state.get(f"wp_status_{c}")
+                if _wps:
+                    (st.success if _wps[0] else st.warning)(f"WordPress: {_wps[1]}")
+                elif get_env_value(c, "WP_USER") and get_env_value(c, "WP_APP_PASSWORD"):
+                    st.caption("WordPress guardado. Pulsa «Probar conexión con WordPress» para comprobarlo.")
                 _words = client_words(c)
                 if _words:
                     st.caption("Word de posts para el cliente: " + " · ".join(os.path.basename(w) for w in _words[:6])
@@ -1243,6 +1252,8 @@ with tab2:
                         set_env_value(c, "WP_USER", new_wp_user)
                         set_env_value(c, "WP_APP_PASSWORD", new_wp_pass)
                         _wp = test_wordpress(c) if (new_wp_user.strip() and new_wp_pass.strip()) else None
+                        if _wp:
+                            st.session_state[f"wp_status_{c}"] = _wp
                         st.session_state.pop(f"adsrow_{c}", None)  # que la casilla de la lista refleje lo guardado
                         if _do_save:
                             ac.forget_client(c)  # los datos cambiaron: el estado anterior ya no vale

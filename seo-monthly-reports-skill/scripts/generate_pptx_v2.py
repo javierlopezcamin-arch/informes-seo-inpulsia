@@ -960,7 +960,7 @@ def generate_pptx_v2(analysis: dict, client_name: str, sections: set = None,
 
         dom = analysis.get('dominance') or {}
         if dom:
-            img = gcharts.dominance_bars(dom['series']) if gcharts else None
+            img = gcharts.dominance_bars(dom['series']) if gcharts and dom.get('growing') else None
             if img:
                 add_image(prs, "donde ya somos referencia", "BÚSQUEDAS QUE DOMINAMOS", img, dom['narrative'], lbl)
             if dom.get('top'):

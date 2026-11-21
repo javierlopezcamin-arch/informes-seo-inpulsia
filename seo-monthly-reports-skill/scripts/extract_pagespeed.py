@@ -89,20 +89,27 @@ def extract_crux(url: str) -> dict:
     cached = cache_read(cache_key)
     if cached is not None:
         return cached
-    body = json.dumps({"origin": origin, "formFactor": "PHONE", "metrics": list(CRUX_GOOD)}).encode()
-    req = urllib.request.Request(f"{CRUX_API}?key={api_key}", data=body,
-                                 headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            rec = json.loads(resp.read()).get("record", {})
-    except urllib.error.HTTPError as e:
-        if e.code == 404:   # sin datos para esta web: se guarda para no repetir la consulta
-            cache_write(cache_key, {})
-        else:
+    scheme, host = origin.split("://", 1)
+    alt = f"{scheme}://{host[4:]}" if host.startswith("www.") else f"{scheme}://www.{host}"
+    rec = None
+    for o in (origin, alt):
+        body = json.dumps({"origin": o, "formFactor": "PHONE", "metrics": list(CRUX_GOOD)}).encode()
+        req = urllib.request.Request(f"{CRUX_API}?key={api_key}", data=body,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                rec = json.loads(resp.read()).get("record", {})
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 404:   # sin datos para este origen: se prueba la otra variante
+                continue
             print(f"  ⚠️  CrUX: error HTTP {e.code} (¿API «Chrome UX Report» activada en Google Cloud?)")
-        return {}
-    except Exception as e:
-        print(f"  ⚠️  CrUX: {e}")
+            return {}
+        except Exception as e:
+            print(f"  ⚠️  CrUX: {e}")
+            return {}
+    if rec is None:   # ninguna variante tiene datos: se guarda para no repetir la consulta este mes
+        cache_write(cache_key, {})
         return {}
 
     def _num(v):

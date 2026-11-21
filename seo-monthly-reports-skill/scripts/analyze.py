@@ -486,7 +486,10 @@ class SEOAnalyzer:
         narrative = f"La web aparece en el top 3 de Google en {fmt_int(cur['top3_count'])} búsquedas"
         narrative += (f" ({fmt_int(d)} más que el mes anterior)" if d > 0 else "")
         narrative += f" y en la primera página en {fmt_int(cur['top10_count'])}."
+        first = next((m for m in months if m.get('top10_count')), cur)
+        growing = cur['top3_count'] >= first['top3_count'] and cur['top10_count'] >= first['top10_count']
         return {'count': cur['top3_count'], 'prev_count': prev.get('top3_count'), 'top10': cur['top10_count'],
+                'growing': growing,
                 'pages': cur.get('pages_count', 0), 'prev_pages': prev.get('pages_count'),
                 'top': cur.get('top3', [])[:8], 'narrative': narrative,
                 'series': [{'label': m['label'], 'top3': m['top3_count'], 'top10': m['top10_count'],
@@ -511,6 +514,9 @@ class SEOAnalyzer:
                 series.append({'query': t, 'positions': pos})
         # Con muchas (Rank Math da una por página): las 10 con posición y más impresiones
         rows = sorted(rows, key=lambda r: (r['now'] is None, -r['impressions'], r['now'] or 999))[:10]
+        if sum(1 for r in rows if r['now'] is not None) >= 3:   # sin filas «aún sin posición» si hay de sobra
+            rows = [r for r in rows if r['now'] is not None]
+        rows.sort(key=lambda r: r['now'] if r['now'] is not None else 999)   # las mejor posicionadas arriba
         keep = {r['query'] for r in rows}
         series = sorted((x for x in series if x['query'] in keep),
                         key=lambda x: x['positions'][-1] if x['positions'][-1] is not None else 999)[:6]

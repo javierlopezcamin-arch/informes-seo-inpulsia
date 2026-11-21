@@ -103,8 +103,20 @@ def extract_rankmath(client: str, month: int, year: int) -> dict:
     """{'now': foto del mes, 'prev': foto guardada anterior o None}. {} si no está configurado o falla."""
     if not rankmath_configured(client):
         return {}
+    from datetime import date
     key = f"{year}-{month:02d}"
     hist = load_history(client)
+    # Rank Math solo da la foto de hoy: al regenerar un informe antiguo se usa lo guardado
+    # (si no, se escribiría el dato de hoy en un mes pasado y la evolución saldría mal)
+    t = date.today()
+    recent = (t.year * 12 + t.month) - (year * 12 + month) <= 1
+    if not recent:
+        snap = hist.get(key)
+        if not snap:
+            return {}
+        earlier = sorted(k for k in hist if k < key)
+        return {"now": snap, "prev": hist[earlier[-1]] if earlier else None,
+                "prev_label": earlier[-1] if earlier else None}
     snap = {}
     try:
         posts = {}
